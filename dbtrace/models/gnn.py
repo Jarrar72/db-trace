@@ -39,6 +39,7 @@ class HeteroPathEncoder:
         self.head: nn.Module | None = None
         self.pca: PCA | None = None
         self._metadata: tuple | None = None
+        self.epoch_history: list[dict[str, float]] = []
 
     def _init_model(self, sample_data: HeteroData) -> None:
         torch.manual_seed(self.seed)
@@ -83,7 +84,7 @@ class HeteroPathEncoder:
         envs: dict[str, CloudEnvironment],
         paths_by_env: dict[str, list[AccessPathRecord]],
         train_env_ids: list[str],
-        epochs: int = 25,
+        epochs: int = 50,
         lr: float = 3e-3,
     ) -> None:
         """Train GNN encoder ONLY on train_env_ids to prevent data leakage."""
@@ -95,12 +96,14 @@ class HeteroPathEncoder:
         params = list(self.model.parameters()) + list(self.head.parameters())
         opt = torch.optim.Adam(params, lr=lr, weight_decay=1e-4)
         loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([8.0]))
+        self.epoch_history = []
 
         self.model.train()
         self.head.train()
-        for _ in range(epochs):
+        for ep in range(1, epochs + 1):
             opt.zero_grad()
             total_loss = torch.tensor(0.0)
+            n_used = 0
             for eid in train_env_ids:
                 data, idx_maps = built[eid]
                 epaths = paths_by_env[eid]
@@ -111,8 +114,14 @@ class HeteroPathEncoder:
                 logits = self.head(pvecs).squeeze(-1)
                 y = torch.tensor([p.label_exploitable for p in epaths], dtype=torch.float)
                 total_loss = total_loss + loss_fn(logits, y)
+                n_used += 1
             total_loss.backward()
             opt.step()
+            if ep == 1 or ep % 5 == 0:
+                self.epoch_history.append({
+                    "epoch": ep,
+                    "loss": round(float(total_loss.item() / max(n_used, 1)), 4),
+                })
 
         # Fit PCA on training path embeddings
         raw_train = self._encode_raw(envs, paths_by_env, train_env_ids)

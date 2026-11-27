@@ -154,7 +154,27 @@ def train_and_evaluate(data_dir: Path = Path("data")) -> dict[str, object]:
 
     # B4: GNN only (PyG HeteroGraphSAGE trained ONLY on train_env_ids)
     gnn = HeteroPathEncoder(hidden_channels=32, pca_dim=16, seed=settings.random_seed)
-    gnn.fit(envs, paths_by_env, train_env_ids, epochs=25)
+    gnn.fit(envs, paths_by_env, train_env_ids, epochs=50)
+
+    # 5-fold StratifiedGroupKFold CV on the 80% training split for XGBoost
+    cv_sgkf = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=settings.random_seed)
+    cv_f1s, cv_recalls, cv_precisions = [], [], []
+    for cv_tr, cv_va in cv_sgkf.split(X_train_tab, y_train, groups=train_df["env_id"]):
+        cv_clf = xgb.XGBClassifier(
+            n_estimators=180,
+            max_depth=5,
+            learning_rate=0.06,
+            subsample=0.85,
+            colsample_bytree=0.85,
+            scale_pos_weight=neg / pos,
+            eval_metric="logloss",
+            random_state=settings.random_seed,
+        )
+        cv_clf.fit(X_train_tab[cv_tr], y_train[cv_tr])
+        cv_pred = (cv_clf.predict_proba(X_train_tab[cv_va])[:, 1] >= 0.5).astype(int)
+        cv_f1s.append(float(f1_score(y_train[cv_va], cv_pred, zero_division=0)))
+        cv_recalls.append(float(recall_score(y_train[cv_va], cv_pred, zero_division=0)))
+        cv_precisions.append(float(precision_score(y_train[cv_va], cv_pred, zero_division=0)))
 
     # Order rows by env_id order to align GNN embeddings cleanly
     def _ordered_gnn_features(sub_df: pd.DataFrame, env_ids: list[str]) -> tuple[np.ndarray, np.ndarray, pd.DataFrame]:
@@ -230,6 +250,20 @@ def train_and_evaluate(data_dir: Path = Path("data")) -> dict[str, object]:
             (xgb_tab.predict_proba(te_ord[FEATURE_COLUMNS].to_numpy(dtype=float))[:, 1] >= b3_thresh).astype(int),
             (b5_prob_raw >= b5_thresh).astype(int),
         ),
+        "gnn_epoch_history": gnn.epoch_history,
+        "cv_5fold": {
+            "f1_mean": round(float(np.mean(cv_f1s)), 4),
+            "f1_std": round(float(np.std(cv_f1s)), 4),
+            "recall_mean": round(float(np.mean(cv_recalls)), 4),
+            "precision_mean": round(float(np.mean(cv_precisions)), 4),
+        },
+        "dataset_sources": [
+            "Capital One 2019 SSRF + IMDSv1 Breach Chain (MIT Sloan CAMS Case Study)",
+            "Rhino Security Labs CloudGoat & 21 AWS IAM Privilege Escalation Methods",
+            "Datadog Stratus Red Team (RDS Snapshot Exfiltration & Credential Theft)",
+            "CIS AWS Foundations Benchmark v5.0 & AWS IAM Policy Grammar",
+            "PostgreSQL pg_roles / pg_auth_members / role_table_grants Closure",
+        ],
         "top_shap_features": shap_summary,
     }
 

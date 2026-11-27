@@ -143,19 +143,25 @@ def _build_attack_steps(env: CloudEnvironment, p: AccessPathRecord) -> list[dict
     steps: list[dict[str, str]] = []
     steps.append({
         "stage": "1. Entry Identity",
+        "mitre": "T1078.004 (Cloud Accounts)",
         "resource": entry.name if entry else p.entry_principal_id,
         "detail": (
-            "External attacker from the Internet targets the public surface."
+            "External attacker from the public Internet targets exposed cloud endpoints."
             if (entry and entry.is_external_entry)
             else f"IAM principal '{entry.name if entry else p.entry_principal_id}' initiates access."
+        ),
+        "remediation_hint": (
+            "Enforce MFA, remove wildcard (*) IAM actions, and restrict sts:AssumeRole trust policies."
         ),
     })
 
     if p.via_snapshot:
         steps.append({
             "stage": "2. Snapshot Exposure",
+            "mitre": "T1537 (Transfer Data to Cloud Account)",
             "resource": rds.name if rds else p.rds_id,
             "detail": "Exploits public or shareable unencrypted RDS snapshot to copy database outside VPC.",
+            "remediation_hint": "Enable RDS storage encryption and disable public/cross-account snapshot sharing.",
         })
     elif comp:
         vuln_note = (
@@ -167,16 +173,27 @@ def _build_attack_steps(env: CloudEnvironment, p: AccessPathRecord) -> list[dict
                 else f"Executes through {comp.kind.upper()} resource '{comp.name}'."
             )
         )
-        steps.append({"stage": "2. Compute Pivot", "resource": comp.name, "detail": vuln_note})
+        steps.append({
+            "stage": "2. Compute Pivot",
+            "mitre": "T1552.005 (Cloud Instance Metadata API)",
+            "resource": comp.name,
+            "detail": vuln_note,
+            "remediation_hint": (
+                "Enforce IMDSv2 (http_tokens = 'required') on EC2 and move DB secrets to Secrets Manager."
+            ),
+        })
     elif p.via_internet:
         steps.append({
             "stage": "2. Network Exposure",
+            "mitre": "T1190 (Exploit Public-Facing Application)",
             "resource": rds.name if rds else p.rds_id,
             "detail": "Connects directly over the public Internet to port 5432 on a publicly accessible DB endpoint.",
+            "remediation_hint": "Set publicly_accessible = false and restrict Security Group port 5432 to VPC CIDR.",
         })
 
     steps.append({
         "stage": "3. Database Role",
+        "mitre": "T1098 (Account Manipulation)",
         "resource": db_role.name if db_role else p.db_role_id,
         "detail": (
             f"Authenticates as PostgreSQL role '{db_role.name}' "
@@ -184,15 +201,22 @@ def _build_attack_steps(env: CloudEnvironment, p: AccessPathRecord) -> list[dict
             if db_role
             else "Attempts database role authentication."
         ),
+        "remediation_hint": "Remove unnecessary SUPERUSER flags and restrict rds-db:connect IAM permissions.",
     })
 
     steps.append({
         "stage": "4. Target Data",
+        "mitre": "T1530 (Data from Cloud Storage/DB)",
         "resource": f"{tbl.schema_name}.{tbl.table_name}" if tbl else p.db_table_id,
         "detail": (
             f"Exfiltrates {tbl.sensitivity.value.upper()} table '{tbl.schema_name}.{tbl.table_name}'."
             if p.label_exploitable == 1 and tbl
             else f"Blocked before exfiltration ({p.failure_reason or 'insufficient access'})."
+        ),
+        "remediation_hint": (
+            f"REVOKE SELECT ON TABLE {tbl.schema_name}.{tbl.table_name} FROM PUBLIC / over-broad roles."
+            if tbl
+            else "Apply least-privilege table grants."
         ),
     })
     return steps
