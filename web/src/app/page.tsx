@@ -104,6 +104,21 @@ export default function DashboardPage() {
   const [awsToken, setAwsToken] = useState<string>("");
   const [awsResult, setAwsResult] = useState<string>("");
   const [awsError, setAwsError] = useState<string>("");
+  const [awsInventory, setAwsInventory] = useState<{
+    account_id: string;
+    caller_arn: string;
+    region: string;
+    principals: number;
+    policies: number;
+    computes: number;
+    security_groups: number;
+    rds_instances: number;
+    collect_ms: number;
+    warnings: string[];
+    principal_names?: string[];
+    sg_names?: string[];
+    rds_names?: string[];
+  } | null>(null);
 
   const [liveStages, setLiveStages] = useState<PipelineStage[]>([]);
   const [busyMsg, setBusyMsg] = useState<string>("");
@@ -257,9 +272,10 @@ export default function DashboardPage() {
       setSelectedPathId(data.paths?.[0]?.path_id || "");
       setRemediations(data.remediations || []);
       const inv = data.inventory;
+      setAwsInventory(inv);
       const warnMsg = inv.warnings?.length ? ` (SCP/Policy warnings: ${inv.warnings.join("; ")})` : "";
       setAwsResult(
-        `Scanned AWS ${inv.region} in ${inv.collect_ms} ms: ${inv.principals} IAM principals, ${inv.policies} policies, ${inv.security_groups} security groups, ${inv.rds_instances} RDS instances.${warnMsg}`
+        `Connected to AWS Account ${inv.account_id} (${inv.region}) in ${inv.collect_ms} ms: ${inv.principals} IAM principals, ${inv.policies} policies, ${inv.computes} EC2 instances, ${inv.security_groups} security groups, ${inv.rds_instances} RDS instances.${warnMsg}`
       );
       setActiveTab("explorer");
     } finally {
@@ -417,6 +433,38 @@ export default function DashboardPage() {
           {/* TAB 1: ATTACK PATHS (WIZ / DATADOG STYLE) */}
           {activeTab === "explorer" && (
             <div className="space-y-6">
+              {awsInventory && (
+                <section className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-semibold text-blue-900">
+                      Live AWS Account Connected: <span className="font-mono">{awsInventory.account_id}</span> ({awsInventory.region})
+                    </div>
+                    <button
+                      onClick={() => setAwsInventory(null)}
+                      className="text-xs text-blue-700 hover:underline"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                    <div className="rounded-lg bg-white border border-blue-100 p-2.5"><span className="text-slate-500">IAM Principals:</span> <b>{awsInventory.principals}</b></div>
+                    <div className="rounded-lg bg-white border border-blue-100 p-2.5"><span className="text-slate-500">IAM Policies:</span> <b>{awsInventory.policies}</b></div>
+                    <div className="rounded-lg bg-white border border-blue-100 p-2.5"><span className="text-slate-500">EC2 Instances:</span> <b>{awsInventory.computes}</b></div>
+                    <div className="rounded-lg bg-white border border-blue-100 p-2.5"><span className="text-slate-500">Security Groups:</span> <b>{awsInventory.security_groups}</b></div>
+                    <div className="rounded-lg bg-white border border-blue-100 p-2.5"><span className="text-slate-500">RDS Instances:</span> <b>{awsInventory.rds_instances}</b></div>
+                  </div>
+                  {awsInventory.warnings?.length > 0 && (
+                    <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-1.5">
+                      <b>Organization SCP Restrictions:</b> {awsInventory.warnings.join(" | ")}
+                    </div>
+                  )}
+                  {awsInventory.rds_instances === 0 && (
+                    <div className="text-[11px] text-slate-600">
+                      Note: 0 RDS instances were returned in {awsInventory.region} (either none exist in this region or <code>rds:DescribeDBInstances</code> was blocked by SCP), so no RDS attack paths could be formed.
+                    </div>
+                  )}
+                </section>
+              )}
               {/* Animated SVG Attack-Path Canvas */}
               <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">

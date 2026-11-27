@@ -81,8 +81,8 @@ const TIER_META: Record<
   },
 };
 
-const CANVAS_W = 1220;
-const NODE_W = 164;
+const CANVAS_W = 1480;
+const NODE_W = 152;
 const NODE_H = 66;
 
 export default function AttackGraph({

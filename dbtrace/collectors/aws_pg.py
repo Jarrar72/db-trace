@@ -9,6 +9,7 @@ from botocore.exceptions import ClientError
 from dbtrace.schema import (
     VPC,
     CloudEnvironment,
+    ComputeResource,
     DBRole,
     DBTable,
     IAMPolicy,
@@ -102,7 +103,7 @@ def collect_aws_environment(
     access_key_id: str | None = None,
     secret_access_key: str | None = None,
     session_token: str | None = None,
-) -> tuple[CloudEnvironment, list[str]]:
+) -> tuple[CloudEnvironment, dict[str, object]]:
     """Read-only collection via boto3 SecurityAudit permissions, gracefully handling SCP-denied services."""
     session_kwargs: dict[str, str] = {"region_name": region}
     if access_key_id and secret_access_key:
@@ -111,9 +112,14 @@ def collect_aws_environment(
         if session_token:
             session_kwargs["aws_session_token"] = session_token
     session = boto3.Session(**session_kwargs)
+    sts = session.client("sts")
     iam = session.client("iam")
     ec2 = session.client("ec2")
     rds_client = session.client("rds")
+
+    caller = sts.get_caller_identity()
+    account_id = caller.get("Account", "unknown")
+    caller_arn = caller.get("Arn", "unknown")
 
     warnings: list[str] = []
     policies: list[IAMPolicy] = []
@@ -207,6 +213,27 @@ def collect_aws_environment(
     except ClientError as exc:
         warnings.append(f"rds:DescribeDBInstances blocked by SCP: {exc.response['Error']['Code']}")
 
+    computes: list[ComputeResource] = []
+    try:
+        for res in ec2.describe_instances().get("Reservations", []):
+            for inst in res.get("Instances", []):
+                iid = inst["InstanceId"]
+                name_tag = next((t["Value"] for t in inst.get("Tags", []) if t["Key"] == "Name"), iid)
+                imdsv2 = inst.get("MetadataOptions", {}).get("HttpTokens", "optional") == "required"
+                computes.append(
+                    ComputeResource(
+                        id=iid,
+                        kind="ec2",
+                        name=name_tag,
+                        subnet_id=inst.get("SubnetId", "subnet-0"),
+                        security_group_ids=[g["GroupId"] for g in inst.get("SecurityGroups", [])],
+                        imdsv2_required=imdsv2,
+                        has_public_ip=bool(inst.get("PublicIpAddress")),
+                    )
+                )
+    except ClientError as exc:
+        warnings.append(f"ec2:DescribeInstances blocked by SCP: {exc.response['Error']['Code']}")
+
     env = CloudEnvironment(
         env_id=env_id,
         scenario_type="live_aws_scan",
@@ -217,6 +244,13 @@ def collect_aws_environment(
         security_groups=sgs,
         policies=policies,
         principals=principals,
+        computes=computes,
         rds_instances=rds_list,
     )
-    return env, warnings
+    meta = {
+        "account_id": account_id,
+        "caller_arn": caller_arn,
+        "region": region,
+        "warnings": warnings,
+    }
+    return env, meta
