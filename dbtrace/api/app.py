@@ -25,11 +25,14 @@ from dbtrace.generator.__main__ import generate_dataset
 from dbtrace.generator.scenarios import build_scenario
 from dbtrace.graph.builder import build_hetero_data, graph_to_cytoscape_elements
 from dbtrace.labeling.oracle import enumerate_and_label_paths
+from dbtrace.llm.copilot import answer_copilot_query
 from dbtrace.llm.narrator import narrate_remediation
 from dbtrace.logs.generator import generate_env_logs
 from dbtrace.models.gnn import HeteroPathEncoder
 from dbtrace.models.train import train_and_evaluate
 from dbtrace.remediation.engine import recommend_remediations
+from dbtrace.remediation.whatif import WhatIfToggles, simulate_what_if
+from dbtrace.reports.generator import generate_executive_report
 from dbtrace.schema import AccessPathRecord, CloudEnvironment
 
 app = FastAPI(title="DB-TRACE API", version="0.2.0")
@@ -519,3 +522,54 @@ def api_train_model() -> dict:
     """Train all baselines + PyG GNN + XGBoost + SHAP and persist model artifacts."""
     report = train_and_evaluate(data_dir=_data_dir())
     return {"status": "trained", "evaluation": report}
+
+
+class CopilotChatRequest(BaseModel):
+    env_id: str = "demo_capital_one"
+    message: str
+
+
+class WhatIfRequest(BaseModel):
+    env_id: str = "demo_capital_one"
+    toggles: WhatIfToggles
+
+
+@app.post("/api/copilot/chat")
+def copilot_chat(req: CopilotChatRequest) -> dict:
+    """Conversational AI Security Copilot grounded in active environment scan, GNN risk & SHAP."""
+    env = _load_env(req.env_id)
+    scored, explanations = _score_env_paths(env)
+    exp_map = {e["path_id"]: e for e in explanations}
+    logs = generate_env_logs(env, n_days=30, seed=settings.random_seed)
+    recs = recommend_remediations(env, logs)
+    recs_data = [r.model_dump() for r in recs]
+    ans = answer_copilot_query(
+        query=req.message,
+        env=env,
+        scored_paths=scored,
+        explanations=exp_map,
+        remediations=recs_data,
+    )
+    return ans.model_dump()
+
+
+@app.post("/api/what-if/simulate")
+def what_if_simulate(req: WhatIfRequest) -> dict:
+    """Simulate the effect of virtual security changes on the environment's attack paths."""
+    env = _load_env(req.env_id)
+    logs = generate_env_logs(env, n_days=30, seed=settings.random_seed)
+    res = simulate_what_if(env, req.toggles, logs=logs)
+    return res.model_dump()
+
+
+@app.get("/api/reports/assessment/{env_id}")
+def get_executive_report(env_id: str) -> dict:
+    """Generate executive audit report with compliance mappings and verified remediations."""
+    env = _load_env(env_id)
+    scored, explanations = _score_env_paths(env)
+    exp_map = {e["path_id"]: e for e in explanations}
+    logs = generate_env_logs(env, n_days=30, seed=settings.random_seed)
+    recs = recommend_remediations(env, logs)
+    recs_data = [r.model_dump() for r in recs]
+    rep = generate_executive_report(env, scored, exp_map, recs_data)
+    return rep.model_dump()
