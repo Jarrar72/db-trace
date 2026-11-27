@@ -95,11 +95,24 @@ def collect_postgres_grants(conn_str: str, rds_id: str = "real_pg_01") -> tuple[
     return roles, tables
 
 
-def collect_aws_environment(env_id: str = "aws_live", region: str = "us-east-1") -> CloudEnvironment:
-    """Read-only collection via boto3 SecurityAudit permissions."""
-    iam = boto3.client("iam", region_name=region)
-    ec2 = boto3.client("ec2", region_name=region)
-    rds_client = boto3.client("rds", region_name=region)
+def collect_aws_environment(
+    env_id: str = "aws_live",
+    region: str = "us-east-1",
+    access_key_id: str | None = None,
+    secret_access_key: str | None = None,
+    session_token: str | None = None,
+) -> CloudEnvironment:
+    """Read-only collection via boto3 SecurityAudit permissions (uses keys or local AWS SSO/profile)."""
+    session_kwargs: dict[str, str] = {"region_name": region}
+    if access_key_id and secret_access_key:
+        session_kwargs["aws_access_key_id"] = access_key_id
+        session_kwargs["aws_secret_access_key"] = secret_access_key
+        if session_token:
+            session_kwargs["aws_session_token"] = session_token
+    session = boto3.Session(**session_kwargs)
+    iam = session.client("iam")
+    ec2 = session.client("ec2")
+    rds_client = session.client("rds")
 
     auth = iam.get_account_authorization_details(Filter=["User", "Role", "LocalManagedPolicy"])
     policies: list[IAMPolicy] = []

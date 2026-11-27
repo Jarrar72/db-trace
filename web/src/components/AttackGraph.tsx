@@ -10,12 +10,12 @@ interface GraphProps {
 }
 
 const NODE_COLORS: Record<string, string> = {
-  Principal: "#f59e0b",
-  Compute: "#3b82f6",
-  SecurityGroup: "#8b5cf6",
-  RDSInstance: "#ef4444",
-  DBRole: "#10b981",
-  DBTable: "#ec4899",
+  Principal: "#d97706",
+  Compute: "#2563eb",
+  SecurityGroup: "#7c3aed",
+  RDSInstance: "#dc2626",
+  DBRole: "#059669",
+  DBTable: "#db2777",
 };
 
 export default function AttackGraph({ nodes, edges, highlightedNodeIds }: GraphProps) {
@@ -31,7 +31,7 @@ export default function AttackGraph({ nodes, edges, highlightedNodeIds }: GraphP
         ...nodes.map((n) => ({
           data: {
             ...n.data,
-            color: NODE_COLORS[String(n.data.node_type)] || "#64748b",
+            color: NODE_COLORS[String(n.data.node_type)] || "#475569",
             highlighted: hlSet.has(String(n.data.id)) ? "yes" : "no",
           },
         })),
@@ -46,55 +46,62 @@ export default function AttackGraph({ nodes, edges, highlightedNodeIds }: GraphP
           style: {
             "background-color": "data(color)",
             label: "data(label)",
-            color: "#e2e8f0",
+            color: "#0f172a",
             "font-size": "11px",
             "font-weight": "bold",
             "text-valign": "bottom",
             "text-margin-y": 8,
-            "text-background-color": "#0b1120",
-            "text-background-opacity": 0.85,
+            "text-background-color": "#ffffff",
+            "text-background-opacity": 0.92,
             "text-background-padding": "3px",
-            width: 36,
-            height: 36,
+            "text-border-color": "#e2e8f0",
+            "text-border-width": 1,
+            "text-border-opacity": 1,
+            width: 34,
+            height: 34,
             "border-width": 2,
-            "border-color": "#0f172a",
+            "border-color": "#ffffff",
           },
         },
         {
           selector: 'node[highlighted = "yes"]',
           style: {
             "border-width": 4,
-            "border-color": "#fb7185",
-            width: 46,
-            height: 46,
+            "border-color": "#dc2626",
+            width: 44,
+            height: 44,
           },
         },
         {
           selector: "edge",
           style: {
-            width: 2,
-            "line-color": "#334155",
-            "target-arrow-color": "#334155",
+            width: 1.8,
+            "line-color": "#cbd5e1",
+            "target-arrow-color": "#94a3b8",
             "target-arrow-shape": "triangle",
             "curve-style": "bezier",
             label: "data(rel)",
-            color: "#94a3b8",
+            color: "#475569",
             "font-size": "9px",
             "text-rotation": "autorotate",
+            "text-background-color": "#f8fafc",
+            "text-background-opacity": 0.85,
+            "text-background-padding": "2px",
           },
         },
         {
           selector: 'edge[highlighted = "yes"]',
           style: {
-            width: 3.5,
-            "line-color": "#f43f5e",
-            "target-arrow-color": "#f43f5e",
+            width: 3,
+            "line-color": "#dc2626",
+            "target-arrow-color": "#dc2626",
             "line-style": "dashed",
-            color: "#fda4af",
+            color: "#b91c1c",
+            "font-weight": "bold",
           },
         },
       ],
-      layout: { name: "breadthfirst", directed: true, padding: 30, spacingFactor: 1.45 },
+      layout: { name: "breadthfirst", directed: true, padding: 32, spacingFactor: 1.45 },
     });
 
     return () => cy.destroy();
@@ -102,18 +109,23 @@ export default function AttackGraph({ nodes, edges, highlightedNodeIds }: GraphP
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
         {Object.entries(NODE_COLORS).map(([type, color]) => (
-          <span key={type} className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-2.5 py-1 border border-slate-800">
+          <span
+            key={type}
+            className="inline-flex items-center gap-1.5 rounded-md bg-slate-50 px-2.5 py-1 border border-slate-200 font-medium"
+          >
             <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
             {type}
           </span>
         ))}
-        <span className="ml-auto text-rose-400 font-medium">Red dashed = Active Attack Path</span>
+        <span className="ml-auto text-xs font-medium text-red-600">
+          Dashed red = Active attack path
+        </span>
       </div>
       <div
         ref={containerRef}
-        className="h-[460px] w-full rounded-xl border border-slate-800 bg-[#070b14] shadow-inner"
+        className="h-[440px] w-full rounded-lg border border-slate-200 bg-slate-50"
       />
     </div>
   );

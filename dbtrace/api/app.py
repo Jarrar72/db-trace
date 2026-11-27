@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from dbtrace.collectors.aws_pg import collect_aws_environment
 from dbtrace.collectors.live_neon import (
     apply_live_neon_fix,
     scan_live_neon_environment,
@@ -20,12 +21,14 @@ from dbtrace.collectors.live_neon import (
 )
 from dbtrace.config import settings
 from dbtrace.features.extract import FEATURE_COLUMNS, extract_path_features
+from dbtrace.generator.__main__ import generate_dataset
 from dbtrace.generator.scenarios import build_scenario
 from dbtrace.graph.builder import build_hetero_data, graph_to_cytoscape_elements
 from dbtrace.labeling.oracle import enumerate_and_label_paths
 from dbtrace.llm.narrator import narrate_remediation
 from dbtrace.logs.generator import generate_env_logs
 from dbtrace.models.gnn import HeteroPathEncoder
+from dbtrace.models.train import train_and_evaluate
 from dbtrace.remediation.engine import recommend_remediations
 from dbtrace.schema import AccessPathRecord, CloudEnvironment
 
@@ -79,6 +82,18 @@ class LiveScanRequest(BaseModel):
 class LiveFixRequest(BaseModel):
     table_name: str = "customers_pii"
     connection_url: str | None = None
+
+
+class AwsScanRequest(BaseModel):
+    region: str = "us-east-1"
+    access_key_id: str | None = None
+    secret_access_key: str | None = None
+    session_token: str | None = None
+
+
+class GenerateRequest(BaseModel):
+    n_envs: int = 100
+    seed: int = 42
 
 
 def _data_dir() -> Path:
@@ -408,3 +423,68 @@ def live_neon_apply_fix(req: LiveFixRequest) -> dict:
     fix_res = apply_live_neon_fix(conn_str, table_name=req.table_name)
     scan_res = live_neon_scan(LiveScanRequest(connection_url=conn_str))
     return {"fix": fix_res, "scan": scan_res}
+
+
+@app.post("/cloud/aws/scan")
+def scan_real_aws(req: AwsScanRequest) -> dict:
+    """Connect to a real AWS account (via keys or local AWS SSO/profile) and run DB-TRACE."""
+    try:
+        t0 = time.perf_counter()
+        env = collect_aws_environment(
+            env_id=f"aws_{req.region}",
+            region=req.region,
+            access_key_id=req.access_key_id or None,
+            secret_access_key=req.secret_access_key or None,
+            session_token=req.session_token or None,
+        )
+        t_collect = round((time.perf_counter() - t0) * 1000, 1)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"AWS connection failed: {exc}") from exc
+
+    graph = graph_to_cytoscape_elements(env)
+    scored, explanations = _score_env_paths(env)
+    logs = generate_env_logs(env, n_days=30, seed=settings.random_seed)
+    recs = recommend_remediations(env, logs)
+    return {
+        "inventory": {
+            "region": req.region,
+            "principals": len(env.principals),
+            "policies": len(env.policies),
+            "security_groups": len(env.security_groups),
+            "rds_instances": len(env.rds_instances),
+            "collect_ms": t_collect,
+        },
+        "graph": graph,
+        "paths": scored,
+        "explanations": {e["path_id"]: e for e in explanations},
+        "remediations": [r.model_dump() for r in recs],
+    }
+
+
+@app.get("/ml/dataset")
+def dataset_summary() -> dict:
+    """Return dataset manifest and sample labeled rows from data/paths.csv."""
+    import pandas as pd
+
+    manifest_path = _data_dir() / "manifest.json"
+    csv_path = _data_dir() / "paths.csv"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+    sample = []
+    if csv_path.exists():
+        df = pd.read_csv(csv_path).head(15).fillna("")
+        sample = df.to_dict(orient="records")
+    return {"manifest": manifest, "sample_rows": sample}
+
+
+@app.post("/ml/generate")
+def api_generate_dataset(req: GenerateRequest) -> dict:
+    """Trigger synthetic environment & labeled attack-path dataset generation."""
+    manifest = generate_dataset(n_envs=req.n_envs, seed=req.seed, out_dir=_data_dir())
+    return {"status": "generated", "manifest": manifest}
+
+
+@app.post("/ml/train")
+def api_train_model() -> dict:
+    """Train all baselines + PyG GNN + XGBoost + SHAP and persist model artifacts."""
+    report = train_and_evaluate(data_dir=_data_dir())
+    return {"status": "trained", "evaluation": report}
