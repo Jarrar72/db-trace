@@ -454,7 +454,7 @@ def scan_real_aws(req: AwsScanRequest) -> dict:
     """Connect to a real AWS account (via keys or local AWS SSO/profile) and run DB-TRACE."""
     try:
         t0 = time.perf_counter()
-        env = collect_aws_environment(
+        env, warnings = collect_aws_environment(
             env_id=f"aws_{req.region}",
             region=req.region,
             access_key_id=req.access_key_id or None,
@@ -477,6 +477,7 @@ def scan_real_aws(req: AwsScanRequest) -> dict:
             "security_groups": len(env.security_groups),
             "rds_instances": len(env.rds_instances),
             "collect_ms": t_collect,
+            "warnings": warnings,
         },
         "graph": graph,
         "paths": scored,

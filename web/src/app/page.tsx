@@ -257,8 +257,9 @@ export default function DashboardPage() {
       setSelectedPathId(data.paths?.[0]?.path_id || "");
       setRemediations(data.remediations || []);
       const inv = data.inventory;
+      const warnMsg = inv.warnings?.length ? ` (SCP/Policy warnings: ${inv.warnings.join("; ")})` : "";
       setAwsResult(
-        `Scanned AWS ${inv.region} in ${inv.collect_ms} ms: ${inv.principals} IAM principals, ${inv.policies} policies, ${inv.security_groups} security groups, ${inv.rds_instances} RDS instances.`
+        `Scanned AWS ${inv.region} in ${inv.collect_ms} ms: ${inv.principals} IAM principals, ${inv.policies} policies, ${inv.security_groups} security groups, ${inv.rds_instances} RDS instances.${warnMsg}`
       );
       setActiveTab("explorer");
     } finally {

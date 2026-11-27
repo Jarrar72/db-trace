@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import boto3
 import psycopg
+from botocore.exceptions import ClientError
 
 from dbtrace.schema import (
     VPC,
@@ -101,8 +102,8 @@ def collect_aws_environment(
     access_key_id: str | None = None,
     secret_access_key: str | None = None,
     session_token: str | None = None,
-) -> CloudEnvironment:
-    """Read-only collection via boto3 SecurityAudit permissions (uses keys or local AWS SSO/profile)."""
+) -> tuple[CloudEnvironment, list[str]]:
+    """Read-only collection via boto3 SecurityAudit permissions, gracefully handling SCP-denied services."""
     session_kwargs: dict[str, str] = {"region_name": region}
     if access_key_id and secret_access_key:
         session_kwargs["aws_access_key_id"] = access_key_id
@@ -114,78 +115,99 @@ def collect_aws_environment(
     ec2 = session.client("ec2")
     rds_client = session.client("rds")
 
-    auth = iam.get_account_authorization_details(Filter=["User", "Role", "LocalManagedPolicy"])
+    warnings: list[str] = []
     policies: list[IAMPolicy] = []
-    for p in auth.get("Policies", []):
-        ver = next((v for v in p.get("PolicyVersionList", []) if v.get("IsDefaultVersion")), None)
-        doc = ver.get("Document", {}) if ver else {}
-        raw_stmts = doc.get("Statement", [])
-        if isinstance(raw_stmts, dict):
-            raw_stmts = [raw_stmts]
-        stmts = [
-            PolicyStatement(
-                effect=s.get("Effect", "Allow"),
-                actions=s.get("Action", []) if isinstance(s.get("Action"), list) else [s.get("Action", "*")],
-                resources=s.get("Resource", ["*"]) if isinstance(s.get("Resource"), list) else [s.get("Resource", "*")],
-            )
-            for s in raw_stmts
-        ]
-        policies.append(IAMPolicy(id=p["Arn"], name=p["PolicyName"], statements=stmts))
-
     principals: list[IAMPrincipal] = []
-    for u in auth.get("UserDetailList", []):
-        principals.append(
-            IAMPrincipal(
-                id=u["Arn"],
-                arn=u["Arn"],
-                name=u["UserName"],
-                kind="user",
-                attached_policy_ids=[ap["PolicyArn"] for ap in u.get("AttachedManagedPolicies", [])],
+    try:
+        auth = iam.get_account_authorization_details(Filter=["User", "Role", "LocalManagedPolicy"])
+        for p in auth.get("Policies", []):
+            ver = next((v for v in p.get("PolicyVersionList", []) if v.get("IsDefaultVersion")), None)
+            doc = ver.get("Document", {}) if ver else {}
+            raw_stmts = doc.get("Statement", [])
+            if isinstance(raw_stmts, dict):
+                raw_stmts = [raw_stmts]
+            stmts = [
+                PolicyStatement(
+                    effect=s.get("Effect", "Allow"),
+                    actions=s.get("Action", []) if isinstance(s.get("Action"), list) else [s.get("Action", "*")],
+                    resources=s.get("Resource", ["*"]) if isinstance(s.get("Resource"), list) else [s.get("Resource", "*")],
+                )
+                for s in raw_stmts
+            ]
+            policies.append(IAMPolicy(id=p["Arn"], name=p["PolicyName"], statements=stmts))
+
+        for u in auth.get("UserDetailList", []):
+            principals.append(
+                IAMPrincipal(
+                    id=u["Arn"],
+                    arn=u["Arn"],
+                    name=u["UserName"],
+                    kind="user",
+                    attached_policy_ids=[ap["PolicyArn"] for ap in u.get("AttachedManagedPolicies", [])],
+                )
             )
-        )
-    for r in auth.get("RoleDetailList", []):
-        principals.append(
-            IAMPrincipal(
-                id=r["Arn"],
-                arn=r["Arn"],
-                name=r["RoleName"],
-                kind="role",
-                attached_policy_ids=[ap["PolicyArn"] for ap in r.get("AttachedManagedPolicies", [])],
+        for r in auth.get("RoleDetailList", []):
+            principals.append(
+                IAMPrincipal(
+                    id=r["Arn"],
+                    arn=r["Arn"],
+                    name=r["RoleName"],
+                    kind="role",
+                    attached_policy_ids=[ap["PolicyArn"] for ap in r.get("AttachedManagedPolicies", [])],
+                )
             )
-        )
+    except ClientError as exc:
+        warnings.append(f"IAM blocked by policy/SCP: {exc.response['Error']['Code']}")
 
-    vpcs = [VPC(id=v["VpcId"], cidr=v.get("CidrBlock", "10.0.0.0/16")) for v in ec2.describe_vpcs().get("Vpcs", [])]
-    subnets = [
-        Subnet(id=s["SubnetId"], vpc_id=s["VpcId"], cidr=s.get("CidrBlock", "10.0.0.0/24"))
-        for s in ec2.describe_subnets().get("Subnets", [])
-    ]
-    sgs = []
-    for sg in ec2.describe_security_groups().get("SecurityGroups", []):
-        rules = []
-        for perm in sg.get("IpPermissions", []):
-            fp, tp = perm.get("FromPort", 0), perm.get("ToPort", 65535)
-            for ipr in perm.get("IpRanges", []):
-                rules.append(IngressRule(from_port=fp, to_port=tp, cidr=ipr.get("CidrIp")))
-            for pair in perm.get("UserIdGroupPairs", []):
-                rules.append(IngressRule(from_port=fp, to_port=tp, source_sg_id=pair.get("GroupId")))
-        sgs.append(SecurityGroup(id=sg["GroupId"], name=sg.get("GroupName", sg["GroupId"]), vpc_id=sg["VpcId"], ingress_rules=rules))
+    vpcs: list[VPC] = []
+    try:
+        vpcs = [VPC(id=v["VpcId"], cidr=v.get("CidrBlock", "10.0.0.0/16")) for v in ec2.describe_vpcs().get("Vpcs", [])]
+    except ClientError as exc:
+        warnings.append(f"ec2:DescribeVpcs blocked by SCP: {exc.response['Error']['Code']}")
 
-    rds_list = [
-        RDSInstance(
-            id=db["DBInstanceIdentifier"],
-            name=db["DBInstanceIdentifier"],
-            vpc_id=db.get("DBSubnetGroup", {}).get("VpcId", vpcs[0].id if vpcs else "vpc-0"),
-            subnet_id=subnets[0].id if subnets else "subnet-0",
-            security_group_ids=[g["VpcSecurityGroupId"] for g in db.get("VpcSecurityGroups", [])],
-            port=db.get("Endpoint", {}).get("Port", 5432),
-            publicly_accessible=db.get("PubliclyAccessible", False),
-            encrypted=db.get("StorageEncrypted", True),
-            iam_auth_enabled=db.get("IAMDatabaseAuthenticationEnabled", False),
-        )
-        for db in rds_client.describe_db_instances().get("DBInstances", [])
-    ]
+    subnets: list[Subnet] = []
+    try:
+        subnets = [
+            Subnet(id=s["SubnetId"], vpc_id=s["VpcId"], cidr=s.get("CidrBlock", "10.0.0.0/24"))
+            for s in ec2.describe_subnets().get("Subnets", [])
+        ]
+    except ClientError as exc:
+        warnings.append(f"ec2:DescribeSubnets blocked by SCP: {exc.response['Error']['Code']}")
 
-    return CloudEnvironment(
+    sgs: list[SecurityGroup] = []
+    try:
+        for sg in ec2.describe_security_groups().get("SecurityGroups", []):
+            rules = []
+            for perm in sg.get("IpPermissions", []):
+                fp, tp = perm.get("FromPort", 0), perm.get("ToPort", 65535)
+                for ipr in perm.get("IpRanges", []):
+                    rules.append(IngressRule(from_port=fp, to_port=tp, cidr=ipr.get("CidrIp")))
+                for pair in perm.get("UserIdGroupPairs", []):
+                    rules.append(IngressRule(from_port=fp, to_port=tp, source_sg_id=pair.get("GroupId")))
+            sgs.append(SecurityGroup(id=sg["GroupId"], name=sg.get("GroupName", sg["GroupId"]), vpc_id=sg["VpcId"], ingress_rules=rules))
+    except ClientError as exc:
+        warnings.append(f"ec2:DescribeSecurityGroups blocked by SCP: {exc.response['Error']['Code']}")
+
+    rds_list: list[RDSInstance] = []
+    try:
+        rds_list = [
+            RDSInstance(
+                id=db["DBInstanceIdentifier"],
+                name=db["DBInstanceIdentifier"],
+                vpc_id=db.get("DBSubnetGroup", {}).get("VpcId", vpcs[0].id if vpcs else "vpc-0"),
+                subnet_id=subnets[0].id if subnets else "subnet-0",
+                security_group_ids=[g["VpcSecurityGroupId"] for g in db.get("VpcSecurityGroups", [])],
+                port=db.get("Endpoint", {}).get("Port", 5432),
+                publicly_accessible=db.get("PubliclyAccessible", False),
+                encrypted=db.get("StorageEncrypted", True),
+                iam_auth_enabled=db.get("IAMDatabaseAuthenticationEnabled", False),
+            )
+            for db in rds_client.describe_db_instances().get("DBInstances", [])
+        ]
+    except ClientError as exc:
+        warnings.append(f"rds:DescribeDBInstances blocked by SCP: {exc.response['Error']['Code']}")
+
+    env = CloudEnvironment(
         env_id=env_id,
         scenario_type="live_aws_scan",
         template_family="live",
@@ -197,3 +219,4 @@ def collect_aws_environment(
         principals=principals,
         rds_instances=rds_list,
     )
+    return env, warnings
