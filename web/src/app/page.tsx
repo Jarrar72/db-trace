@@ -5,6 +5,7 @@ import {
   AlertCircle,
   BarChart3,
   CheckCircle2,
+  ChevronRight,
   Cloud,
   Database,
   GitBranch,
@@ -14,13 +15,14 @@ import {
   ShieldAlert,
   ShieldCheck,
   Wrench,
+  X,
   XCircle,
 } from "lucide-react";
-import AttackGraph from "@/components/AttackGraph";
+import AttackGraph, { GraphEdge, GraphNode } from "@/components/AttackGraph";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
-type TabId = "cloud" | "explorer" | "remediation" | "provenance";
+type TabId = "explorer" | "cloud" | "remediation" | "provenance";
 
 interface EnvSummary {
   env_id: string;
@@ -41,6 +43,8 @@ interface PathItem {
   entry_principal_id: string;
   entry_name?: string;
   compute_id: string | null;
+  source_sg_id?: string | null;
+  rds_sg_id?: string | null;
   rds_id: string;
   db_role_id: string;
   db_role_name?: string;
@@ -107,10 +111,11 @@ export default function DashboardPage() {
 
   const [envs, setEnvs] = useState<EnvSummary[]>([]);
   const [selectedEnv, setSelectedEnv] = useState<string>("demo_capital_one");
-  const [graph, setGraph] = useState<{ nodes: Array<{ data: Record<string, unknown> }>; edges: Array<{ data: Record<string, unknown> }> }>({ nodes: [], edges: [] });
+  const [graph, setGraph] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] }>({ nodes: [], edges: [] });
   const [paths, setPaths] = useState<PathItem[]>([]);
   const [explanations, setExplanations] = useState<Record<string, { top_features: ShapFeat[] }>>({});
   const [selectedPathId, setSelectedPathId] = useState<string>("");
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [remediations, setRemediations] = useState<RemediationItem[]>([]);
   const [evalData, setEvalData] = useState<{ manifest?: Record<string, unknown>; evaluation?: Record<string, unknown> }>({});
 
@@ -137,6 +142,7 @@ export default function DashboardPage() {
       setPaths(list);
       setExplanations(pRes.explanations || {});
       setSelectedPathId(list[0]?.path_id || "");
+      setSelectedNode(null);
       setRemediations(rRes.remediations || []);
       setApiOnline(true);
     } catch {
@@ -197,7 +203,7 @@ export default function DashboardPage() {
       setSelectedEnv("live_neon_cloud");
       await refreshNeon();
       setActiveTab("explorer");
-      setNotice("Live Neon Cloud Scan complete. Inspect the attack graph and step-by-step remediation below.");
+      setNotice("Live Neon Cloud scan complete.");
     } finally {
       setBusyMsg("");
     }
@@ -265,6 +271,8 @@ export default function DashboardPage() {
     ? [
         activePath.entry_principal_id,
         activePath.compute_id || "",
+        activePath.source_sg_id || "",
+        activePath.rds_sg_id || "",
         activePath.rds_id,
         activePath.db_role_id,
         activePath.db_table_id,
@@ -282,7 +290,14 @@ export default function DashboardPage() {
   };
   const evalModels = evaluation.models || {};
   const b5Cm = evalModels["B5_gnn_xgboost_hybrid"]?.confusion_matrix;
-  const manifest = (evalData.manifest || {}) as { n_environments?: number; n_paths?: number; n_exploitable?: number };
+  const manifest = (evalData.manifest || {}) as { n_environments?: number; n_paths?: number };
+
+  // Find matching step for clicked node in slide-over drawer
+  const matchingStep = selectedNode
+    ? (activePath?.attack_steps || []).find((st) =>
+        st.resource.toLowerCase().includes(String(selectedNode.data.label || "").toLowerCase())
+      )
+    : null;
 
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900">
@@ -295,16 +310,16 @@ export default function DashboardPage() {
             </div>
             <div>
               <div className="text-sm font-bold tracking-tight text-slate-900">DB-TRACE</div>
-              <div className="text-xs text-slate-500">Cloud DB Risk Platform</div>
+              <div className="text-xs text-slate-500">Cloud Security Graph</div>
             </div>
           </div>
 
           <nav className="space-y-1">
             {[
-              { id: "explorer", label: "Attack Path Explorer", icon: GitBranch },
-              { id: "cloud", label: "Cloud Connections", icon: Cloud },
-              { id: "remediation", label: "Verified Remediations", icon: Wrench },
-              { id: "provenance", label: "AI Model & Benchmarks", icon: BarChart3 },
+              { id: "explorer", label: "Attack Paths", icon: GitBranch },
+              { id: "cloud", label: "Cloud Connectors", icon: Cloud },
+              { id: "remediation", label: "Verified Fixes", icon: Wrench },
+              { id: "provenance", label: "Model & Benchmarks", icon: BarChart3 },
             ].map((item) => {
               const Icon = item.icon;
               const active = activeTab === item.id;
@@ -327,7 +342,7 @@ export default function DashboardPage() {
 
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5 space-y-2.5">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-              Target Environment
+              Scope / Environment
             </div>
             <select
               value={selectedEnv}
@@ -355,7 +370,7 @@ export default function DashboardPage() {
         <div className="border-t border-slate-200 p-4 space-y-2 text-xs bg-slate-50/70">
           <div className="flex items-center gap-2">
             <span className={`h-2 w-2 rounded-full ${apiOnline ? "bg-emerald-500" : "bg-red-500"}`} />
-            <span className="font-medium text-slate-700">{apiOnline ? "AI Engine Online" : "Backend Offline"}</span>
+            <span className="font-medium text-slate-700">{apiOnline ? "AI Engine Online" : "API Offline"}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className={`h-2 w-2 rounded-full ${neonStatus?.connected ? "bg-emerald-500" : "bg-amber-500"}`} />
@@ -367,18 +382,18 @@ export default function DashboardPage() {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative">
         <header className="h-14 border-b border-slate-200 bg-white px-6 flex items-center justify-between shrink-0">
           <h1 className="text-sm font-semibold text-slate-900">
-            {activeTab === "explorer" && "Contextual Attack-Path Graph, Complete Attack Story & Per-Step Remediation"}
-            {activeTab === "cloud" && "Live Cloud Connections (AWS Read-Only & Neon Cloud PostgreSQL)"}
-            {activeTab === "remediation" && "Verified Remediation Simulator (30-Day Historical Log Replay)"}
-            {activeTab === "provenance" && "Pre-Trained AI Engine: Training Epochs, Dataset Sources & Benchmarks"}
+            {activeTab === "explorer" && "Toxic Combination Attack Paths"}
+            {activeTab === "cloud" && "Cloud Connectors (AWS Read-Only & Neon PostgreSQL)"}
+            {activeTab === "remediation" && "Verified Remediation Simulator"}
+            {activeTab === "provenance" && "Pre-Trained AI Engine & Benchmarks"}
           </h1>
           <div className="flex items-center gap-3 text-xs">
-            <span className="text-slate-500">Environment: <b className="text-slate-800">{selectedEnv}</b></span>
+            <span className="text-slate-500">Target: <b className="text-slate-800">{selectedEnv}</b></span>
             <span className={`rounded-full px-2.5 py-0.5 font-semibold ${exploitableCount > 0 ? "bg-red-50 text-red-700 border border-red-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"}`}>
-              {exploitableCount} Exploitable
+              {exploitableCount} Critical Paths
             </span>
             <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 font-semibold text-emerald-700">
               {safeFixCount} Safe Fixes
@@ -398,62 +413,48 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* TAB 1: ATTACK PATH EXPLORER (CLEAN LEFT-TO-RIGHT GRAPH + DETAILS BELOW) */}
+          {/* TAB 1: ATTACK PATHS (WIZ / DATADOG STYLE) */}
           {activeTab === "explorer" && (
             <div className="space-y-6">
-              {/* Full-Width Tiered Graph */}
+              {/* Animated SVG Attack-Path Canvas */}
               <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-base font-semibold text-slate-900">Attack-Path Access Graph (Left-to-Right Flow)</h2>
+                    <h2 className="text-base font-semibold text-slate-900">Attack-Path Topology</h2>
                     <p className="text-xs text-slate-500">
-                      Shows how an external/IAM identity pivots through compute, network security groups, and database roles to reach sensitive tables.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-medium text-slate-600">Select Path:</label>
-                    <select
-                      value={selectedPathId}
-                      onChange={(e) => setSelectedPathId(e.target.value)}
-                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 max-w-md"
-                    >
-                      {paths.slice(0, 30).map((p) => (
-                        <option key={p.path_id} value={p.path_id}>
-                          [{p.label_exploitable ? "EXPLOITABLE" : "SAFE"}] {(p.risk_score * 100).toFixed(0)}% — {p.entry_name} → {p.db_role_name} → {p.db_table_name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <AttackGraph nodes={graph.nodes} edges={graph.edges} highlightedNodeIds={highlightedIds} />
-              </section>
-
-              {/* Below-Graph Details: Complete Attack Chain + Per-Step Remediation */}
-              <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                  <div>
-                    <h2 className="text-base font-semibold text-slate-900">
-                      Complete Attack Chain &amp; How to Remediate Each Step
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      Exact step-by-step breakdown of how this path compromises data (with MITRE ATT&amp;CK mapping) and the targeted fix for each stage.
+                      Linearized kill-chain from external/IAM entry to sensitive PostgreSQL tables. Select any path below or click any node to inspect.
                     </p>
                   </div>
                   {activePath && (
-                    <div className="flex items-center gap-2">
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${activePath.label_exploitable ? "bg-red-50 text-red-700 border border-red-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"}`}>
-                        {activePath.label_exploitable ? "EXPLOITABLE PATH" : "BLOCKED / SAFE PATH"} — AI Risk {(activePath.risk_score * 100).toFixed(1)}%
-                      </span>
-                      <button
-                        onClick={() => setActiveTab("remediation")}
-                        className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
-                      >
-                        Verify Fixes via Log Replay →
-                      </button>
-                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${activePath.label_exploitable ? "bg-red-50 text-red-700 border border-red-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"}`}>
+                      {activePath.label_exploitable ? "CRITICAL EXPLOITABLE" : "BLOCKED / SAFE"} — AI Score {(activePath.risk_score * 100).toFixed(1)}%
+                    </span>
                   )}
                 </div>
+                <AttackGraph
+                  nodes={graph.nodes}
+                  edges={graph.edges}
+                  highlightedNodeIds={highlightedIds}
+                  selectedNodeId={selectedNode?.data.id || null}
+                  onSelectNode={setSelectedNode}
+                  isExploitable={activePath?.label_exploitable === 1}
+                />
+              </section>
 
+              {/* Below Graph: Step-by-Step Kill Chain + Per-Step Remediation */}
+              <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-900">How This Attack Forms &amp; How to Remediate Each Step</h2>
+                    <p className="text-xs text-slate-500">MITRE ATT&amp;CK mapping and targeted fix per stage</p>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab("remediation")}
+                    className="rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                  >
+                    Simulate &amp; Verify Fixes →
+                  </button>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {(activePath?.attack_steps || []).map((st) => (
                     <div key={st.stage} className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex flex-col justify-between space-y-3">
@@ -472,7 +473,7 @@ export default function DashboardPage() {
                         <p className="text-xs text-slate-700 leading-relaxed">{st.detail}</p>
                       </div>
                       {st.remediation_hint && (
-                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-2.5 text-[11px] text-emerald-900">
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 p-2.5 text-[11px] text-emerald-900">
                           <span className="font-semibold text-emerald-700">Fix: </span>
                           {st.remediation_hint}
                         </div>
@@ -482,43 +483,82 @@ export default function DashboardPage() {
                 </div>
               </section>
 
-              {/* Below-Graph SHAP Risk Drivers */}
-              <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
-                <h2 className="text-base font-semibold text-slate-900">Why the AI Model Flagged This Path (SHAP Attribution)</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {activeShap.map((s) => (
-                    <div key={s.feature} className="space-y-1">
-                      <div className="flex items-center justify-between text-xs gap-2">
-                        <span className="text-slate-700 font-medium">{s.label || s.feature}</span>
-                        <span className={`font-mono font-semibold shrink-0 ${s.shap_value >= 0 ? "text-red-600" : "text-emerald-700"}`}>
-                          {s.shap_value >= 0 ? "+" : ""}{s.shap_value.toFixed(3)}
-                        </span>
+              {/* Curated Findings Table + SHAP Drivers */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <section className="lg:col-span-7 rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
+                  <h2 className="text-sm font-semibold text-slate-900">Curated Attack Paths ({paths.length})</h2>
+                  <div className="overflow-x-auto rounded-lg border border-slate-200 max-h-72 overflow-y-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 sticky top-0">
+                        <tr>
+                          <th className="p-2.5 font-semibold">Severity</th>
+                          <th className="p-2.5 font-semibold">Attack Chain</th>
+                          <th className="p-2.5 font-semibold">AI Risk</th>
+                          <th className="p-2.5 font-semibold"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {paths.slice(0, 25).map((p) => {
+                          const isSelected = p.path_id === activePath?.path_id;
+                          return (
+                            <tr
+                              key={p.path_id}
+                              onClick={() => setSelectedPathId(p.path_id)}
+                              className={`cursor-pointer transition ${isSelected ? "bg-blue-50/80" : "hover:bg-slate-50"}`}
+                            >
+                              <td className="p-2.5">
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${p.label_exploitable ? "bg-red-50 text-red-700 border border-red-200" : "bg-slate-100 text-slate-600"}`}>
+                                  {p.label_exploitable ? "CRITICAL" : "SAFE"}
+                                </span>
+                              </td>
+                              <td className="p-2.5 font-mono text-slate-800">
+                                {p.entry_name} → {p.db_role_name} → <span className="text-pink-700 font-semibold">{p.db_table_name}</span>
+                              </td>
+                              <td className="p-2.5 font-mono font-semibold text-slate-700">{(p.risk_score * 100).toFixed(0)}%</td>
+                              <td className="p-2.5 text-right text-blue-600"><ChevronRight className="h-4 w-4 inline" /></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+
+                <section className="lg:col-span-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
+                  <h2 className="text-sm font-semibold text-slate-900">Why AI Flagged This Path (SHAP)</h2>
+                  <div className="space-y-2.5">
+                    {activeShap.map((s) => (
+                      <div key={s.feature} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs gap-2">
+                          <span className="text-slate-700 font-medium">{s.label || s.feature}</span>
+                          <span className={`font-mono font-semibold shrink-0 ${s.shap_value >= 0 ? "text-red-600" : "text-emerald-700"}`}>
+                            {s.shap_value >= 0 ? "+" : ""}{s.shap_value.toFixed(3)}
+                          </span>
+                        </div>
+                        <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className={`h-2 rounded-full ${s.shap_value >= 0 ? "bg-red-500" : "bg-emerald-500"}`}
+                            style={{ width: `${Math.min(100, Math.abs(s.shap_value) * 35)}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className={`h-2 rounded-full ${s.shap_value >= 0 ? "bg-red-500" : "bg-emerald-500"}`}
-                          style={{ width: `${Math.min(100, Math.abs(s.shap_value) * 35)}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
+                    ))}
+                  </div>
+                </section>
+              </div>
             </div>
           )}
 
-          {/* TAB 2: CLOUD CONNECTIONS */}
+          {/* TAB 2: CLOUD CONNECTORS */}
           {activeTab === "cloud" && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <Server className="h-5 w-5 text-blue-600" />
-                      <div>
-                        <h2 className="text-base font-semibold text-slate-900">Connect Real AWS Account</h2>
-                        <p className="text-xs text-slate-500">Read-only boto3 SecurityAudit scan (IAM, VPC, SGs, RDS)</p>
-                      </div>
+                  <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3">
+                    <Server className="h-5 w-5 text-blue-600" />
+                    <div>
+                      <h2 className="text-base font-semibold text-slate-900">Connect Real AWS Account</h2>
+                      <p className="text-xs text-slate-500">Read-only boto3 SecurityAudit scan (IAM, VPC, SGs, RDS)</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -527,8 +567,8 @@ export default function DashboardPage() {
                       <input value={awsRegion} onChange={(e) => setAwsRegion(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900" />
                     </div>
                     <div>
-                      <label className="block font-medium text-slate-700 mb-1">Access Key ID (optional if AWS SSO)</label>
-                      <input value={awsKey} onChange={(e) => setAwsKey(e.target.value)} placeholder="AKIA... or leave blank for local profile" className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900" />
+                      <label className="block font-medium text-slate-700 mb-1">Access Key ID (optional if SSO)</label>
+                      <input value={awsKey} onChange={(e) => setAwsKey(e.target.value)} placeholder="AKIA... or leave blank" className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900" />
                     </div>
                     <div>
                       <label className="block font-medium text-slate-700 mb-1">Secret Access Key</label>
@@ -595,7 +635,7 @@ export default function DashboardPage() {
             <div className="space-y-4">
               <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h2 className="text-base font-semibold text-slate-900">Verified Remediation Simulator (30-Day Historical Log Replay)</h2>
-                <p className="text-xs text-slate-500 mt-1">Each candidate fix is simulated on a graph copy and replayed against historical CloudTrail &amp; PostgreSQL <code>pgaudit</code> logs. Fixes that break legitimate queries are blocked as <b>Unsafe</b>.</p>
+                <p className="text-xs text-slate-500 mt-1">Each candidate fix is simulated on a graph copy and replayed against historical CloudTrail &amp; PostgreSQL <code>pgaudit</code> logs.</p>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {remediations.map((rem) => {
@@ -623,7 +663,7 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* TAB 4: PRE-TRAINED AI MODEL & PROVENANCE */}
+          {/* TAB 4: PRE-TRAINED AI MODEL & BENCHMARKS */}
           {activeTab === "provenance" && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -634,12 +674,8 @@ export default function DashboardPage() {
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="text-xs text-slate-500">5-Fold Group CV (Training Split)</div>
-                  <div className="text-2xl font-bold text-blue-700 mt-1">
-                    {evaluation.cv_5fold ? `${(evaluation.cv_5fold.f1_mean * 100).toFixed(1)}% F1` : "—"}
-                  </div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    {evaluation.cv_5fold ? `Recall ${(evaluation.cv_5fold.recall_mean * 100).toFixed(1)}% | Precision ${(evaluation.cv_5fold.precision_mean * 100).toFixed(1)}%` : "StratifiedGroupKFold"}
-                  </div>
+                  <div className="text-2xl font-bold text-blue-700 mt-1">{evaluation.cv_5fold ? `${(evaluation.cv_5fold.f1_mean * 100).toFixed(1)}% F1` : "—"}</div>
+                  <div className="text-xs text-slate-500 mt-1">{evaluation.cv_5fold ? `Recall ${(evaluation.cv_5fold.recall_mean * 100).toFixed(1)}% | Precision ${(evaluation.cv_5fold.precision_mean * 100).toFixed(1)}%` : "StratifiedGroupKFold"}</div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="text-xs text-slate-500">GNN Training Schedule</div>
@@ -649,29 +685,22 @@ export default function DashboardPage() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Dataset Sources */}
                 <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
                   <h2 className="text-sm font-semibold text-slate-900">Benchmark &amp; Threat-Model Sources</h2>
                   <ul className="space-y-2 text-xs text-slate-700">
                     {(evaluation.dataset_sources || []).map((src) => (
-                      <li key={src} className="flex items-start gap-2">
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5" />
-                        <span>{src}</span>
-                      </li>
+                      <li key={src} className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5" /><span>{src}</span></li>
                     ))}
                   </ul>
                 </section>
 
-                {/* Epoch Loss Progression */}
                 <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
                   <h2 className="text-sm font-semibold text-slate-900">PyG Heterogeneous GNN Training Loss (50 Epochs)</h2>
                   <div className="space-y-2">
                     {(evaluation.gnn_epoch_history || []).map((ep) => (
                       <div key={ep.epoch} className="flex items-center gap-3 text-xs">
                         <span className="w-16 font-mono text-slate-500">Epoch {ep.epoch}</span>
-                        <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
-                          <div className="h-2 rounded-full bg-blue-600" style={{ width: `${Math.min(100, ep.loss * 60)}%` }} />
-                        </div>
+                        <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-2 rounded-full bg-blue-600" style={{ width: `${Math.min(100, ep.loss * 60)}%` }} /></div>
                         <span className="w-14 text-right font-mono text-slate-700">{ep.loss.toFixed(4)}</span>
                       </div>
                     ))}
@@ -679,7 +708,6 @@ export default function DashboardPage() {
                 </section>
               </div>
 
-              {/* Benchmarks Table + Confusion Matrix */}
               <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
                 <h2 className="text-sm font-semibold text-slate-900">Hold-Out Test Set Benchmarks (20 Unseen Environments)</h2>
                 <div className="overflow-x-auto rounded-lg border border-slate-200">
@@ -708,7 +736,6 @@ export default function DashboardPage() {
                     </tbody>
                   </table>
                 </div>
-
                 {b5Cm && (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-xs">
                     <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3"><div className="text-emerald-700 font-medium">True Negatives</div><div className="text-xl font-bold text-slate-900 mt-1">{b5Cm[0][0]}</div></div>
@@ -721,6 +748,62 @@ export default function DashboardPage() {
             </div>
           )}
         </main>
+
+        {/* Wiz/Datadog-style Slide-Over Node Inspector Drawer */}
+        {selectedNode && (
+          <aside className="fixed inset-y-0 right-0 z-50 w-96 border-l border-slate-200 bg-white shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-600">
+                  {String(selectedNode.data.node_type)} Inspector
+                </div>
+                <h3 className="text-sm font-bold text-slate-900">{String(selectedNode.data.label || selectedNode.data.id)}</h3>
+              </div>
+              <button onClick={() => setSelectedNode(null)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-5 text-xs">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5 space-y-1.5">
+                <div className="font-semibold text-slate-700">Resource Attributes</div>
+                {Object.entries(selectedNode.data)
+                  .filter(([k]) => !["color", "highlighted"].includes(k))
+                  .map(([k, v]) => (
+                    <div key={k} className="flex justify-between gap-2">
+                      <span className="text-slate-500">{k}</span>
+                      <span className="font-mono text-slate-800 truncate">{String(v)}</span>
+                    </div>
+                  ))}
+              </div>
+
+              {matchingStep && (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-red-200 bg-red-50/70 p-3.5 space-y-1">
+                    <div className="font-semibold text-red-800">{matchingStep.stage}</div>
+                    {matchingStep.mitre && <div className="font-mono text-[11px] text-red-700">{matchingStep.mitre}</div>}
+                    <p className="text-slate-700 leading-relaxed pt-1">{matchingStep.detail}</p>
+                  </div>
+                  {matchingStep.remediation_hint && (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3.5 space-y-1">
+                      <div className="font-semibold text-emerald-800">Recommended Fix</div>
+                      <p className="text-emerald-900 leading-relaxed">{matchingStep.remediation_hint}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={() => {
+                  setSelectedNode(null);
+                  setActiveTab("remediation");
+                }}
+                className="w-full rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700"
+              >
+                Open Log-Replay Verification Lab
+              </button>
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   );

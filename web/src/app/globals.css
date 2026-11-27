@@ -7,3 +7,20 @@ body {
   color: #0f172a;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
+
+.dot-grid {
+  background-color: #fafbfc;
+  background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+@keyframes dashFlow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.animate-attack-edge {
+  stroke-dasharray: 7 5;
+  animation: dashFlow 0.9s linear infinite;
+}
