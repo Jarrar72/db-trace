@@ -35,7 +35,10 @@ export default function AttackGraph({ nodes, edges, highlightedNodeIds }: GraphP
             highlighted: hlSet.has(String(n.data.id)) ? "yes" : "no",
           },
         })),
-        ...edges.map((e) => ({ data: e.data })),
+        ...edges.map((e) => {
+          const isHl = hlSet.has(String(e.data.source)) && hlSet.has(String(e.data.target));
+          return { data: { ...e.data, highlighted: isHl ? "yes" : "no" } };
+        }),
       ],
       style: [
         {
@@ -43,31 +46,35 @@ export default function AttackGraph({ nodes, edges, highlightedNodeIds }: GraphP
           style: {
             "background-color": "data(color)",
             label: "data(label)",
-            color: "#f8fafc",
+            color: "#e2e8f0",
             "font-size": "11px",
+            "font-weight": "bold",
             "text-valign": "bottom",
-            "text-margin-y": 6,
-            width: 34,
-            height: 34,
+            "text-margin-y": 8,
+            "text-background-color": "#0b1120",
+            "text-background-opacity": 0.85,
+            "text-background-padding": "3px",
+            width: 36,
+            height: 36,
             "border-width": 2,
-            "border-color": "#1e293b",
+            "border-color": "#0f172a",
           },
         },
         {
           selector: 'node[highlighted = "yes"]',
           style: {
             "border-width": 4,
-            "border-color": "#f43f5e",
-            width: 44,
-            height: 44,
+            "border-color": "#fb7185",
+            width: 46,
+            height: 46,
           },
         },
         {
           selector: "edge",
           style: {
             width: 2,
-            "line-color": "#475569",
-            "target-arrow-color": "#475569",
+            "line-color": "#334155",
+            "target-arrow-color": "#334155",
             "target-arrow-shape": "triangle",
             "curve-style": "bezier",
             label: "data(rel)",
@@ -76,17 +83,38 @@ export default function AttackGraph({ nodes, edges, highlightedNodeIds }: GraphP
             "text-rotation": "autorotate",
           },
         },
+        {
+          selector: 'edge[highlighted = "yes"]',
+          style: {
+            width: 3.5,
+            "line-color": "#f43f5e",
+            "target-arrow-color": "#f43f5e",
+            "line-style": "dashed",
+            color: "#fda4af",
+          },
+        },
       ],
-      layout: { name: "breadthfirst", directed: true, padding: 24, spacingFactor: 1.3 },
+      layout: { name: "breadthfirst", directed: true, padding: 30, spacingFactor: 1.45 },
     });
 
     return () => cy.destroy();
   }, [nodes, edges, highlightedNodeIds]);
 
   return (
-    <div
-      ref={containerRef}
-      className="h-[420px] w-full rounded-xl border border-slate-800 bg-slate-950/80"
-    />
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300">
+        {Object.entries(NODE_COLORS).map(([type, color]) => (
+          <span key={type} className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-2.5 py-1 border border-slate-800">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+            {type}
+          </span>
+        ))}
+        <span className="ml-auto text-rose-400 font-medium">Red dashed = Active Attack Path</span>
+      </div>
+      <div
+        ref={containerRef}
+        className="h-[460px] w-full rounded-xl border border-slate-800 bg-[#070b14] shadow-inner"
+      />
+    </div>
   );
 }
