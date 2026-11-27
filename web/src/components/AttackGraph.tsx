@@ -1,7 +1,32 @@
 "use client";
 
-import { useMemo } from "react";
-import { Cpu, Database, Globe, KeyRound, Shield, Table2, User } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  Background,
+  BackgroundVariant,
+  Controls,
+  Edge,
+  Handle,
+  MarkerType,
+  MiniMap,
+  Node,
+  NodeProps,
+  Panel,
+  Position,
+  ReactFlow,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import {
+  Cpu,
+  Database,
+  Globe,
+  KeyRound,
+  Maximize2,
+  Minimize2,
+  Shield,
+  Table2,
+  User,
+} from "lucide-react";
 
 export interface GraphNode {
   data: {
@@ -29,69 +54,194 @@ interface AttackGraphProps {
   selectedNodeId: string | null;
   onSelectNode: (node: GraphNode) => void;
   isExploitable: boolean;
-  simulationStep?: number; // -1 if not simulating; 0..5 for the 6 stages
+  simulationStep?: number;
   isSimulating?: boolean;
+  heightClass?: string;
 }
 
 const TIERS = ["Principal", "Compute", "SecurityGroup", "RDSInstance", "DBRole", "DBTable"] as const;
 
 const TIER_META: Record<
   string,
-  { title: string; badgeBg: string; badgeText: string; iconBg: string; Icon: typeof User; mitre: string }
+  {
+    title: string;
+    short: string;
+    mitre: string;
+    accentBorder: string;
+    iconBg: string;
+    minimapColor: string;
+    Icon: typeof User;
+  }
 > = {
   Principal: {
     title: "1. Identity",
-    badgeBg: "bg-amber-50 border-amber-200",
-    badgeText: "text-amber-700",
-    iconBg: "bg-amber-100 text-amber-700",
-    Icon: User,
+    short: "IAM / ENTRY",
     mitre: "T1078.004",
+    accentBorder: "border-l-amber-500",
+    iconBg: "bg-amber-50 text-amber-700 ring-1 ring-amber-200/70",
+    minimapColor: "#f59e0b",
+    Icon: User,
   },
   Compute: {
     title: "2. Compute",
-    badgeBg: "bg-blue-50 border-blue-200",
-    badgeText: "text-blue-700",
-    iconBg: "bg-blue-100 text-blue-700",
-    Icon: Cpu,
+    short: "EC2 / LAMBDA",
     mitre: "T1552.005",
+    accentBorder: "border-l-blue-500",
+    iconBg: "bg-blue-50 text-blue-700 ring-1 ring-blue-200/70",
+    minimapColor: "#3b82f6",
+    Icon: Cpu,
   },
   SecurityGroup: {
-    title: "3. Network / SG",
-    badgeBg: "bg-violet-50 border-violet-200",
-    badgeText: "text-violet-700",
-    iconBg: "bg-violet-100 text-violet-700",
-    Icon: Shield,
+    title: "3. Network",
+    short: "VPC / SG",
     mitre: "T1190",
+    accentBorder: "border-l-violet-500",
+    iconBg: "bg-violet-50 text-violet-700 ring-1 ring-violet-200/70",
+    minimapColor: "#8b5cf6",
+    Icon: Shield,
   },
   RDSInstance: {
     title: "4. Database",
-    badgeBg: "bg-red-50 border-red-200",
-    badgeText: "text-red-700",
-    iconBg: "bg-red-100 text-red-700",
-    Icon: Database,
+    short: "AWS RDS",
     mitre: "T1530",
+    accentBorder: "border-l-rose-500",
+    iconBg: "bg-rose-50 text-rose-700 ring-1 ring-rose-200/70",
+    minimapColor: "#f43f5e",
+    Icon: Database,
   },
   DBRole: {
     title: "5. DB Role",
-    badgeBg: "bg-emerald-50 border-emerald-200",
-    badgeText: "text-emerald-700",
-    iconBg: "bg-emerald-100 text-emerald-700",
-    Icon: KeyRound,
+    short: "PG ROLE",
     mitre: "T1098",
+    accentBorder: "border-l-emerald-500",
+    iconBg: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/70",
+    minimapColor: "#10b981",
+    Icon: KeyRound,
   },
   DBTable: {
     title: "6. Crown Jewel",
-    badgeBg: "bg-pink-50 border-pink-200",
-    badgeText: "text-pink-700",
-    iconBg: "bg-pink-100 text-pink-700",
-    Icon: Table2,
+    short: "PII TABLE",
     mitre: "T1530",
+    accentBorder: "border-l-pink-600",
+    iconBg: "bg-pink-50 text-pink-700 ring-1 ring-pink-200/70",
+    minimapColor: "#db2777",
+    Icon: Table2,
   },
 };
 
-const CANVAS_W = 1480;
-const NODE_W = 152;
-const NODE_H = 66;
+type CustomNodeData = {
+  label: string;
+  nodeType: string;
+  isHighlighted: boolean;
+  isSelected: boolean;
+  isExploitable: boolean;
+  isCompromisedInSim: boolean;
+  isActiveInSim: boolean;
+  rawNode: GraphNode;
+  onSelect: (n: GraphNode) => void;
+};
+
+function SecurityNode({ data }: NodeProps<Node<CustomNodeData>>) {
+  const meta = TIER_META[data.nodeType] || TIER_META.Principal;
+  const Icon = data.label.toLowerCase().includes("internet") ? Globe : meta.Icon;
+
+  return (
+    <div
+      onClick={() => data.onSelect(data.rawNode)}
+      className={`group relative w-[204px] cursor-pointer rounded-xl bg-white px-3.5 py-3 border border-l-4 transition-all duration-200 ${
+        data.isSelected
+          ? "border-indigo-500 border-l-indigo-600 ring-2 ring-indigo-500/25 shadow-lg scale-[1.03]"
+          : data.isActiveInSim
+          ? "border-amber-400 border-l-amber-500 shadow-lg animate-amber-ring scale-[1.04]"
+          : data.isCompromisedInSim
+          ? "border-red-400 border-l-red-600 bg-red-50/40 shadow-md"
+          : data.isHighlighted
+          ? data.isExploitable
+            ? "border-red-300 border-l-red-600 shadow-md hover:shadow-lg hover:-translate-y-0.5"
+            : "border-emerald-300 border-l-emerald-600 shadow-md hover:shadow-lg hover:-translate-y-0.5"
+          : `border-slate-200/90 ${meta.accentBorder} opacity-70 hover:opacity-100 hover:shadow-md`
+      }`}
+    >
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!h-2.5 !w-2.5 !border-2 !border-white !bg-slate-400"
+      />
+
+      <div className="flex items-center gap-3">
+        <div
+          className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+            data.isActiveInSim
+              ? "bg-amber-100 text-amber-800 ring-1 ring-amber-300"
+              : data.isCompromisedInSim
+              ? "bg-red-100 text-red-700 ring-1 ring-red-300"
+              : meta.iconBg
+          }`}
+        >
+          <Icon className="h-4 w-4" />
+          {data.isHighlighted && data.isExploitable && !data.isActiveInSim && (
+            <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
+            </span>
+          )}
+          {data.isActiveInSim && (
+            <span className="absolute -right-1 -top-1 flex h-3 w-3">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-85" />
+              <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-500" />
+            </span>
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">
+              {meta.short}
+            </span>
+            {data.isCompromisedInSim && (
+              <span className="rounded bg-red-600 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">
+                Breached
+              </span>
+            )}
+            {data.isActiveInSim && (
+              <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white animate-pulse">
+                Active
+              </span>
+            )}
+            {!data.isCompromisedInSim && !data.isActiveInSim && data.isHighlighted && (
+              <span
+                className={`rounded px-1.5 py-0.5 text-[8px] font-bold uppercase ${
+                  data.isExploitable
+                    ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                    : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                }`}
+              >
+                {data.isExploitable ? "At Risk" : "Safe"}
+              </span>
+            )}
+          </div>
+          <div
+            className="mt-0.5 truncate text-xs font-bold text-slate-900"
+            title={data.label}
+          >
+            {data.label}
+          </div>
+          <div className="mt-0.5 font-mono text-[9.5px] text-slate-400">
+            {meta.mitre}
+          </div>
+        </div>
+      </div>
+
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!h-2.5 !w-2.5 !border-2 !border-white !bg-slate-400"
+      />
+    </div>
+  );
+}
+
+const nodeTypes = { securityNode: SecurityNode };
 
 export default function AttackGraph({
   nodes,
@@ -102,10 +252,12 @@ export default function AttackGraph({
   isExploitable,
   simulationStep = -1,
   isSimulating = false,
+  heightClass = "h-[520px]",
 }: AttackGraphProps) {
+  const [expanded, setExpanded] = useState(false);
   const hlSet = useMemo(() => new Set(highlightedNodeIds), [highlightedNodeIds]);
 
-  const { positioned, svgEdges, canvasH, posMap } = useMemo(() => {
+  const { flowNodes, flowEdges } = useMemo(() => {
     const byTier: Record<string, GraphNode[]> = {};
     for (const t of TIERS) byTier[t] = [];
     for (const n of nodes) {
@@ -113,84 +265,122 @@ export default function AttackGraph({
       (byTier[t] || byTier.Principal).push(n);
     }
 
-    const maxPerTier = Math.max(1, ...TIERS.map((t) => byTier[t].length));
-    const height = Math.max(380, maxPerTier * 98 + 70);
-    const colSpacing = (CANVAS_W - 60) / TIERS.length;
+    const tierIdxMap: Record<string, number> = {};
+    const builtNodes: Node<CustomNodeData>[] = [];
+    const colSpacing = 275;
+    const rowSpacing = 108;
 
-    const pMap: Record<string, { x: number; y: number; node: GraphNode; tierIdx: number }> = {};
     TIERS.forEach((tier, colIdx) => {
       const list = byTier[tier];
-      const totalH = list.length * 88;
-      const startY = (height - totalH) / 2 + 14;
+      const totalH = (list.length - 1) * rowSpacing;
+      const startY = 220 - totalH / 2;
       list.forEach((n, rowIdx) => {
-        pMap[n.data.id] = {
-          x: 30 + colIdx * colSpacing + (colSpacing - NODE_W) / 2,
-          y: startY + rowIdx * 88,
-          node: n,
-          tierIdx: colIdx,
-        };
+        tierIdxMap[n.data.id] = colIdx;
+        const isHl = hlSet.has(n.data.id);
+        const isComp = isSimulating && simulationStep >= 0 && isHl && colIdx < simulationStep;
+        const isAct = isSimulating && simulationStep >= 0 && isHl && colIdx === simulationStep;
+
+        builtNodes.push({
+          id: n.data.id,
+          type: "securityNode",
+          position: { x: 40 + colIdx * colSpacing, y: startY + rowIdx * rowSpacing },
+          data: {
+            label: String(n.data.label || n.data.id),
+            nodeType: tier,
+            isHighlighted: isHl,
+            isSelected: selectedNodeId === n.data.id,
+            isExploitable,
+            isCompromisedInSim: isComp,
+            isActiveInSim: isAct,
+            rawNode: n,
+            onSelect: onSelectNode,
+          },
+        });
       });
     });
 
-    const edgeList = edges
-      .map((e) => {
-        const src = pMap[e.data.source];
-        const dst = pMap[e.data.target];
-        if (!src || !dst) return null;
-        let active = hlSet.has(e.data.source) && hlSet.has(e.data.target);
-        if (isSimulating && simulationStep >= 0) {
-          // In simulation mode, only activate edges traversed so far
-          active = active && Math.max(src.tierIdx, dst.tierIdx) <= simulationStep;
-        }
-        const x1 = src.x + NODE_W;
-        const y1 = src.y + NODE_H / 2;
-        const x2 = dst.x;
-        const y2 = dst.y + NODE_H / 2;
-        const dx = Math.max(40, Math.abs(x2 - x1) * 0.45);
-        const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-        const mx = (x1 + x2) / 2;
-        const my = (y1 + y2) / 2;
-        return { id: e.data.id, d, rel: String(e.data.rel || ""), active, mx, my };
-      })
-      .filter(Boolean) as Array<{ id: string; d: string; rel: string; active: boolean; mx: number; my: number }>;
+    const builtEdges: Edge[] = edges.map((e) => {
+      const srcIdx = tierIdxMap[e.data.source] ?? 0;
+      const dstIdx = tierIdxMap[e.data.target] ?? 0;
+      let active = hlSet.has(e.data.source) && hlSet.has(e.data.target);
+      if (isSimulating && simulationStep >= 0) {
+        active = active && Math.max(srcIdx, dstIdx) <= simulationStep;
+      }
+      const strokeColor = active
+        ? isExploitable
+          ? "#ef4444"
+          : "#10b981"
+        : "#cbd5e1";
 
-    return { positioned: Object.values(pMap), svgEdges: edgeList, canvasH: height, posMap: pMap };
-  }, [nodes, edges, hlSet, isSimulating, simulationStep]);
+      return {
+        id: e.data.id,
+        source: e.data.source,
+        target: e.data.target,
+        type: "smoothstep",
+        animated: active,
+        label: active && e.data.rel ? String(e.data.rel) : undefined,
+        labelStyle: {
+          fill: isExploitable ? "#b91c1c" : "#047857",
+          fontWeight: 700,
+          fontSize: 9.5,
+          fontFamily: "var(--font-jetbrains-mono), monospace",
+        },
+        labelBgStyle: {
+          fill: isExploitable ? "#fef2f2" : "#ecfdf5",
+          stroke: isExploitable ? "#fecaca" : "#a7f3d0",
+          strokeWidth: 1,
+        },
+        labelBgPadding: [6, 3] as [number, number],
+        labelBgBorderRadius: 99,
+        style: {
+          stroke: strokeColor,
+          strokeWidth: active ? 2.5 : 1.35,
+          opacity: active ? 1 : 0.65,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: strokeColor,
+          width: 16,
+          height: 16,
+        },
+      };
+    });
+
+    return { flowNodes: builtNodes, flowEdges: builtEdges };
+  }, [nodes, edges, hlSet, selectedNodeId, isExploitable, isSimulating, simulationStep, onSelectNode]);
 
   return (
-    <div className="space-y-3">
-      {/* Tier Column Headers with MITRE Badges */}
-      <div className="grid grid-cols-6 gap-2 px-2">
+    <div className={expanded ? "fixed inset-4 z-50 flex flex-col rounded-2xl bg-white p-4 shadow-2xl border border-slate-200" : "space-y-3"}>
+      {/* 6-Stage MITRE Progress Header */}
+      <div className="grid grid-cols-6 gap-2">
         {TIERS.map((t, idx) => {
           const meta = TIER_META[t];
-          const isCompromised = isSimulating && simulationStep >= 0 && idx < simulationStep;
-          const isActiveStep = isSimulating && simulationStep >= 0 && idx === simulationStep;
+          const isComp = isSimulating && simulationStep >= 0 && idx < simulationStep;
+          const isAct = isSimulating && simulationStep >= 0 && idx === simulationStep;
           return (
             <div
               key={t}
-              className={`text-center rounded-lg p-2 transition-all duration-300 border ${
-                isActiveStep
-                  ? "bg-amber-50 border-amber-300 shadow-sm ring-1 ring-amber-400"
-                  : isCompromised
-                  ? "bg-red-50 border-red-200"
-                  : "bg-slate-50/70 border-slate-200/80"
+              className={`rounded-lg border px-2.5 py-2 text-center transition-all duration-300 ${
+                isAct
+                  ? "border-amber-300 bg-amber-50 shadow-sm ring-1 ring-amber-400/50"
+                  : isComp
+                  ? "border-red-200 bg-red-50/80"
+                  : "border-slate-200/80 bg-slate-50/70"
               }`}
             >
-              <div className="flex items-center justify-center gap-1.5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-800">
-                  {meta.title}
-                </span>
+              <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-800">
+                {meta.title}
               </div>
-              <div className="mt-0.5 flex items-center justify-center gap-1">
-                <span className="text-[9px] font-mono text-slate-500">{meta.mitre}</span>
-                {isCompromised && (
-                  <span className="rounded bg-red-600 px-1 py-0.2 text-[8px] font-bold text-white uppercase">
+              <div className="mt-0.5 flex items-center justify-center gap-1.5">
+                <span className="font-mono text-[9px] text-slate-400">{meta.mitre}</span>
+                {isComp && (
+                  <span className="rounded bg-red-600 px-1 py-0.2 text-[8px] font-bold uppercase text-white">
                     Breached
                   </span>
                 )}
-                {isActiveStep && (
-                  <span className="rounded bg-amber-500 px-1 py-0.2 text-[8px] font-bold text-white uppercase animate-pulse">
-                    Infiltrating
+                {isAct && (
+                  <span className="rounded bg-amber-500 px-1 py-0.2 text-[8px] font-bold uppercase text-white animate-pulse">
+                    Active
                   </span>
                 )}
               </div>
@@ -199,154 +389,64 @@ export default function AttackGraph({
         })}
       </div>
 
-      {/* Interactive Dot-Grid Canvas */}
-      <div className="overflow-x-auto rounded-xl border border-slate-200 dot-grid shadow-inner bg-white/70">
-        <div className="relative mx-auto" style={{ width: CANVAS_W, height: canvasH }}>
-          {/* SVG Animated Bezier Edges */}
-          <svg className="absolute inset-0 pointer-events-none" width={CANVAS_W} height={canvasH}>
-            <defs>
-              <marker id="arrow-muted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M 0 1 L 8 5 L 0 9 z" fill="#94a3b8" />
-              </marker>
-              <marker id="arrow-active" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M 0 1 L 8 5 L 0 9 z" fill={isExploitable ? "#dc2626" : "#059669"} />
-              </marker>
-              <marker id="arrow-sim-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M 0 1 L 8 5 L 0 9 z" fill="#d97706" />
-              </marker>
-            </defs>
+      {/* Interactive React Flow Canvas */}
+      <div
+        className={`relative w-full overflow-hidden rounded-xl border border-slate-200/90 bg-[#F8FAFC] ${
+          expanded ? "flex-1" : heightClass
+        }`}
+      >
+        <ReactFlow
+          nodes={flowNodes}
+          edges={flowEdges}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.16 }}
+          minZoom={0.35}
+          maxZoom={1.6}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={18} size={1.2} color="#CBD5E1" />
+          <Controls showInteractive={false} position="bottom-left" />
+          <MiniMap
+            position="bottom-right"
+            pannable
+            zoomable
+            nodeColor={(n) => {
+              const nt = String((n.data as CustomNodeData)?.nodeType || "Principal");
+              return TIER_META[nt]?.minimapColor || "#64748b";
+            }}
+            maskColor="rgba(241, 245, 249, 0.72)"
+          />
 
-            {svgEdges
-              .filter((e) => !e.active)
-              .map((e) => (
-                <path
-                  key={e.id}
-                  d={e.d}
-                  fill="none"
-                  stroke="#cbd5e1"
-                  strokeWidth={1.5}
-                  markerEnd="url(#arrow-muted)"
-                />
-              ))}
+          {/* Top-Left Status Legend */}
+          <Panel position="top-left">
+            <div className="flex items-center gap-3 rounded-lg border border-slate-200/90 bg-white/95 px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm backdrop-blur">
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                Exploitable Flow
+              </span>
+              <span className="text-slate-300">|</span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                Verified Blocked
+              </span>
+              <span className="text-slate-300">|</span>
+              <span className="text-slate-400">Drag nodes • Scroll to zoom • Click node to inspect</span>
+            </div>
+          </Panel>
 
-            {svgEdges
-              .filter((e) => e.active)
-              .map((e) => (
-                <g key={e.id}>
-                  <path
-                    d={e.d}
-                    fill="none"
-                    stroke={isExploitable ? "rgba(220,38,38,0.18)" : "rgba(5,150,105,0.18)"}
-                    strokeWidth={7}
-                  />
-                  <path
-                    d={e.d}
-                    fill="none"
-                    stroke={isExploitable ? "#dc2626" : "#059669"}
-                    strokeWidth={2.5}
-                    className="animate-attack-edge"
-                    markerEnd="url(#arrow-active)"
-                  />
-                </g>
-              ))}
-          </svg>
-
-          {/* Edge Labels for Active Path */}
-          {svgEdges
-            .filter((e) => e.active && e.rel)
-            .map((e) => (
-              <div
-                key={`lbl-${e.id}`}
-                style={{ left: e.mx, top: e.my }}
-                className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border px-2 py-0.5 text-[10px] font-semibold shadow-sm pointer-events-none transition-all duration-300 ${
-                  isExploitable
-                    ? "bg-red-50 border-red-200 text-red-700"
-                    : "bg-emerald-50 border-emerald-200 text-emerald-700"
-                }`}
-              >
-                {e.rel}
-              </div>
-            ))}
-
-          {/* Interactive Node Cards */}
-          {positioned.map(({ x, y, node, tierIdx }) => {
-            const type = String(node.data.node_type || "Principal");
-            const meta = TIER_META[type] || TIER_META.Principal;
-            const Icon = String(node.data.label || "").includes("internet") ? Globe : meta.Icon;
-            const isHl = hlSet.has(node.data.id);
-            const isSelected = selectedNodeId === node.data.id;
-
-            // Simulation state for this specific node
-            const isCompromisedInSim = isSimulating && simulationStep >= 0 && isHl && tierIdx < simulationStep;
-            const isActiveInSim = isSimulating && simulationStep >= 0 && isHl && tierIdx === simulationStep;
-
-            return (
-              <button
-                key={node.data.id}
-                type="button"
-                onClick={() => onSelectNode(node)}
-                style={{ left: x, top: y, width: NODE_W, height: NODE_H }}
-                className={`absolute text-left rounded-xl bg-white px-3 py-2 transition-all duration-200 flex items-center gap-2.5 group ${
-                  isSelected
-                    ? "ring-2 ring-blue-600 border border-blue-600 shadow-md scale-[1.03] z-30"
-                    : isActiveInSim
-                    ? "border-2 border-amber-500 shadow-lg shadow-amber-200 z-20 scale-[1.04] animate-amber-glow"
-                    : isCompromisedInSim
-                    ? "border-2 border-red-600 bg-red-50/40 shadow-md shadow-red-100 z-10"
-                    : isHl
-                    ? isExploitable
-                      ? "border-2 border-red-500 shadow-md shadow-red-100 z-10 hover:scale-[1.02]"
-                      : "border-2 border-emerald-500 shadow-md shadow-emerald-100 z-10 hover:scale-[1.02]"
-                    : "border border-slate-200 opacity-65 hover:opacity-100 hover:border-slate-300 shadow-sm"
-                }`}
-              >
-                <div
-                  className={`relative h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${
-                    isActiveInSim ? "bg-amber-100 text-amber-800" : isCompromisedInSim ? "bg-red-100 text-red-700" : meta.iconBg
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  {isHl && isExploitable && !isSimulating && (
-                    <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600" />
-                    </span>
-                  )}
-                  {isActiveInSim && (
-                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-80" />
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-600" />
-                    </span>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                      {type}
-                    </span>
-                    {isCompromisedInSim && (
-                      <span className="text-[8px] font-bold text-red-600">PWNED</span>
-                    )}
-                  </div>
-                  <div className="text-xs font-semibold text-slate-900 truncate" title={String(node.data.label || node.data.id)}>
-                    {String(node.data.label || node.data.id)}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 px-1">
-        <span>Click any node card to open its contextual inspector drawer &amp; inline remediation.</span>
-        <span className={isExploitable ? "font-medium text-red-600" : "font-medium text-emerald-700"}>
-          {isSimulating
-            ? `Simulation Step ${Math.min(6, simulationStep + 1)} of 6 (${TIERS[Math.min(5, Math.max(0, simulationStep))]})`
-            : isExploitable
-            ? "Animated red flow = Active exploitable attack path"
-            : "Animated green flow = Verified blocked path"}
-        </span>
+          {/* Top-Right Fullscreen Button */}
+          <Panel position="top-right">
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+            >
+              {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              <span>{expanded ? "Exit Fullscreen" : "Expand Graph"}</span>
+            </button>
+          </Panel>
+        </ReactFlow>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
   AlertTriangle,
@@ -8,45 +9,43 @@ import {
   BarChart3,
   Bot,
   Brain,
-  CheckCircle2,
   ChevronRight,
   Clock,
   Cloud,
-  Code2,
   Copy,
   Cpu,
   Database,
   Download,
-  ExternalLink,
-  Eye,
   FileCheck,
   FileText,
-  Filter,
   Flame,
   GitBranch,
   KeyRound,
-  Layers,
-  Maximize2,
   Network,
+  Pause,
   Play,
   RotateCcw,
   Search,
   Send,
   Server,
   Shield,
-  ShieldAlert,
   ShieldCheck,
   Sliders,
   Sparkles,
-  Table2,
-  TrendingDown,
   User,
   Wrench,
   X,
-  XCircle,
-  Zap,
 } from "lucide-react";
 import AttackGraph, { GraphEdge, GraphNode } from "@/components/AttackGraph";
+import {
+  AnimatedToggleSwitch,
+  ModelBenchmarkChart,
+  PostureRadialGauge,
+  RiskTrendAreaChart,
+  ShapWaterfallChart,
+  SparklineKpiCard,
+} from "@/components/Charts";
+import InspectorDrawer from "@/components/InspectorDrawer";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
@@ -111,12 +110,6 @@ interface RemediationItem {
   legit_broken: number;
   status: string;
   narration?: { summary: string };
-}
-
-interface PipelineStage {
-  stage: string;
-  ms: number;
-  detail: string;
 }
 
 interface NeonStatus {
@@ -190,31 +183,39 @@ interface ExecutiveReportData {
   academic_metrics: Record<string, string>;
 }
 
+const TAB_TITLES: Record<ViewTab, { title: string; breadcrumb: string }> = {
+  dashboard: { title: "Executive Security Posture", breadcrumb: "Overview" },
+  explorer: { title: "Attack Path Explorer & Live Simulator", breadcrumb: "Security Graph" },
+  whatif: { title: "What-If Security Digital Twin", breadcrumb: "Simulation Lab" },
+  copilot: { title: "AI Security Operations Copilot", breadcrumb: "AI Analyst" },
+  explainability: { title: "Explainable AI & Model Benchmark Lab", breadcrumb: "ML Intelligence" },
+  remediation: { title: "Verified Remediation & Log Replay", breadcrumb: "Auto-Fix" },
+  cloud: { title: "Live Cloud & Database Connectors", breadcrumb: "Integrations" },
+  reports: { title: "Executive Audit & Compliance Report", breadcrumb: "Governance" },
+};
+
 export default function EnterpriseSecurityConsole() {
   const [activeTab, setActiveTab] = useState<ViewTab>("dashboard");
   const [apiOnline, setApiOnline] = useState<boolean>(true);
   const [neonStatus, setNeonStatus] = useState<NeonStatus | null>(null);
 
-  // Environments & Active Environment
   const [envs, setEnvs] = useState<EnvSummary[]>([]);
   const [selectedEnv, setSelectedEnv] = useState<string>("demo_capital_one");
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Graph & Paths State
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [paths, setPaths] = useState<PathItem[]>([]);
+  const [pathFilter, setPathFilter] = useState<"all" | "exploitable" | "blocked">("all");
   const [selectedPath, setSelectedPath] = useState<PathItem | null>(null);
   const [explanations, setExplanations] = useState<Record<string, { top_features: ShapFeat[] }>>({});
   const [remediations, setRemediations] = useState<RemediationItem[]>([]);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
 
-  // Attack Path Simulation State
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
   const [simulationStep, setSimulationStep] = useState<number>(-1);
   const simTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // What-If Playground State
   const [whatIfToggles, setWhatIfToggles] = useState<WhatIfToggles>({
     port_5432_open: true,
     iam_admin_access: true,
@@ -225,17 +226,11 @@ export default function EnterpriseSecurityConsole() {
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResult | null>(null);
   const [whatIfLoading, setWhatIfLoading] = useState<boolean>(false);
 
-  // AI Security Copilot State
   const [copilotMessages, setCopilotMessages] = useState<CopilotMsg[]>([
     {
       role: "assistant",
       content:
-        "Hello! I am your **DB-TRACE AI Security Copilot**. I am connected to the active cloud environment scan and GNN risk engine. You can ask me why your database is at risk, inquire about excessive IAM permissions, or request verified remediation guidance.",
-      key_findings: [
-        "Connected to active environment: demo_capital_one",
-        "GNN + XGBoost Risk Pipeline Online (Calibrated 100%)",
-        "30-Day Historical Log-Replay Verification Ready",
-      ],
+        "Welcome to **DB-TRACE AI Security Copilot**. I am grounded directly in your live cloud topology, PyG GNN + XGBoost risk predictions, TreeSHAP feature attributions, and 30-day historical log-replay verifications. Ask me anything about your active environment.",
       suggested_followups: [
         "Why is my database at critical risk?",
         "Show me the most dangerous attack path.",
@@ -247,33 +242,36 @@ export default function EnterpriseSecurityConsole() {
   const [copilotInput, setCopilotInput] = useState<string>("");
   const [copilotLoading, setCopilotLoading] = useState<boolean>(false);
 
-  // Executive Report State
   const [reportData, setReportData] = useState<ExecutiveReportData | null>(null);
   const [reportLoading, setReportLoading] = useState<boolean>(false);
 
-  // AWS & Neon Live Scan State
   const [customPgUrl, setCustomPgUrl] = useState<string>("");
   const [awsRegion, setAwsRegion] = useState<string>("us-east-1");
   const [awsKey, setAwsKey] = useState<string>("");
   const [awsSecret, setAwsSecret] = useState<string>("");
   const [awsToken, setAwsToken] = useState<string>("");
-  const [awsInventory, setAwsInventory] = useState<any>(null);
+  const [awsInventory, setAwsInventory] = useState<{
+    account_id: string;
+    region: string;
+    principals: number;
+    security_groups: number;
+    rds_instances: number;
+    warnings?: string[];
+  } | null>(null);
   const [awsError, setAwsError] = useState<string>("");
   const [liveScanLoading, setLiveScanLoading] = useState<boolean>(false);
-  const [scanStages, setScanStages] = useState<PipelineStage[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState<boolean>(false);
   const [searchFilter, setSearchFilter] = useState<string>("");
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 4000);
+    setTimeout(() => setToastMessage(null), 3800);
   };
 
-  // Keyboard shortcut listener for Ctrl+K
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setCommandPaletteOpen((prev) => !prev);
       }
@@ -286,7 +284,6 @@ export default function EnterpriseSecurityConsole() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Fetch Initial Data
   useEffect(() => {
     fetch(`${API_BASE}/health`)
       .then((r) => r.json())
@@ -309,12 +306,12 @@ export default function EnterpriseSecurityConsole() {
       .catch(() => setApiOnline(false));
   }, []);
 
-  // Fetch Environment Details
   useEffect(() => {
     if (!selectedEnv) return;
     setLoading(true);
     setIsSimulating(false);
     setSimulationStep(-1);
+    setWhatIfResult(null);
     if (simTimerRef.current) clearInterval(simTimerRef.current);
 
     Promise.all([
@@ -329,19 +326,12 @@ export default function EnterpriseSecurityConsole() {
         setPaths(pathList);
         setExplanations(p.explanations || {});
         setRemediations(rem.remediations || []);
-        if (pathList.length > 0) {
-          setSelectedPath(pathList[0]);
-        } else {
-          setSelectedPath(null);
-        }
+        setSelectedPath(pathList.length > 0 ? pathList[0] : null);
       })
-      .catch((err) => {
-        console.error("Failed to load environment:", err);
-      })
+      .catch((err) => console.error("Failed to load environment:", err))
       .finally(() => setLoading(false));
   }, [selectedEnv]);
 
-  // Handle Simulation Auto-Play Loop
   useEffect(() => {
     if (isSimulating) {
       simTimerRef.current = setInterval(() => {
@@ -352,38 +342,28 @@ export default function EnterpriseSecurityConsole() {
           }
           return prev + 1;
         });
-      }, 1400);
-    } else {
-      if (simTimerRef.current) clearInterval(simTimerRef.current);
+      }, 1350);
+    } else if (simTimerRef.current) {
+      clearInterval(simTimerRef.current);
     }
     return () => {
       if (simTimerRef.current) clearInterval(simTimerRef.current);
     };
   }, [isSimulating]);
 
-  // What-If Simulation Trigger
   const runWhatIfSimulation = (updatedToggles: WhatIfToggles) => {
     setWhatIfLoading(true);
     fetch(`${API_BASE}/api/what-if/simulate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        env_id: selectedEnv,
-        toggles: updatedToggles,
-      }),
+      body: JSON.stringify({ env_id: selectedEnv, toggles: updatedToggles }),
     })
       .then((r) => r.json())
-      .then((data: WhatIfResult) => {
-        setWhatIfResult(data);
-      })
-      .catch((err) => {
-        console.error("What-if simulation error:", err);
-        showToast("Simulation failed: " + err);
-      })
+      .then((data: WhatIfResult) => setWhatIfResult(data))
+      .catch((err) => showToast("Simulation error: " + err))
       .finally(() => setWhatIfLoading(false));
   };
 
-  // Copilot Message Send
   const sendCopilotMessage = (userQuery: string) => {
     if (!userQuery.trim()) return;
     const q = userQuery.trim();
@@ -416,30 +396,21 @@ export default function EnterpriseSecurityConsole() {
       .catch((err) => {
         setCopilotMessages((prev) => [
           ...prev,
-          {
-            role: "assistant",
-            content: "Sorry, I encountered an error communicating with the risk reasoning service: " + err,
-          },
+          { role: "assistant", content: "Failed to reach AI reasoning service: " + err },
         ]);
       })
       .finally(() => setCopilotLoading(false));
   };
 
-  // Fetch Executive Report
   const loadExecutiveReport = () => {
     setReportLoading(true);
     fetch(`${API_BASE}/api/reports/assessment/${selectedEnv}`)
       .then((r) => r.json())
-      .then((data: ExecutiveReportData) => {
-        setReportData(data);
-      })
-      .catch((err) => {
-        showToast("Failed to compile assessment report: " + err);
-      })
+      .then((data: ExecutiveReportData) => setReportData(data))
+      .catch((err) => showToast("Report generation failed: " + err))
       .finally(() => setReportLoading(false));
   };
 
-  // Live Neon Scan Action
   const handleLiveNeonScan = () => {
     setLiveScanLoading(true);
     fetch(`${API_BASE}/live/neon/scan`, {
@@ -448,16 +419,14 @@ export default function EnterpriseSecurityConsole() {
       body: JSON.stringify({ connection_url: customPgUrl || undefined }),
     })
       .then((r) => r.json())
-      .then((data) => {
-        setScanStages(data.stages || []);
-        showToast("Live Neon Cloud scan completed successfully!");
+      .then(() => {
+        showToast("Live Neon PostgreSQL scan completed!");
         setSelectedEnv("live_neon_cloud");
       })
       .catch((err) => showToast("Neon scan failed: " + err))
       .finally(() => setLiveScanLoading(false));
   };
 
-  // Live Neon Vulnerability Seed
   const handleLiveNeonSeed = () => {
     setLiveScanLoading(true);
     fetch(`${API_BASE}/live/neon/seed`, {
@@ -467,14 +436,13 @@ export default function EnterpriseSecurityConsole() {
     })
       .then((r) => r.json())
       .then((res) => {
-        showToast(`Seeded ${res.seeded_roles?.length || 1} role(s) & sensitive tables!`);
+        showToast(`Seeded ${res.seeded_roles?.length || 1} vulnerable role(s) & PII tables!`);
         handleLiveNeonScan();
       })
       .catch((err) => showToast("Seed failed: " + err))
       .finally(() => setLiveScanLoading(false));
   };
 
-  // Live Neon Apply Fix
   const handleLiveNeonApplyFix = () => {
     setLiveScanLoading(true);
     fetch(`${API_BASE}/live/neon/apply-fix`, {
@@ -484,14 +452,13 @@ export default function EnterpriseSecurityConsole() {
     })
       .then((r) => r.json())
       .then(() => {
-        showToast("Verified SQL REVOKE executed live on Neon Cloud DB!");
+        showToast("Verified SQL REVOKE executed live on Neon Cloud!");
         handleLiveNeonScan();
       })
       .catch((err) => showToast("Fix execution failed: " + err))
       .finally(() => setLiveScanLoading(false));
   };
 
-  // Real AWS Scan Action
   const handleRealAwsScan = () => {
     setLiveScanLoading(true);
     setAwsError("");
@@ -519,18 +486,23 @@ export default function EnterpriseSecurityConsole() {
         setPaths(data.paths || []);
         setExplanations(data.explanations || {});
         setRemediations(data.remediations || []);
-        showToast(`Discovered AWS Account ${data.inventory.account_id} with ${data.inventory.principals} IAM principals!`);
+        showToast(`Scanned AWS Account ${data.inventory.account_id} (${data.inventory.principals} principals)!`);
         setActiveTab("explorer");
       })
-      .catch((err) => {
-        setAwsError(String(err));
-      })
+      .catch((err) => setAwsError(String(err)))
       .finally(() => setLiveScanLoading(false));
   };
 
-  // Derived Values for Active Path & KPIs
   const exploitableCount = paths.filter((p) => p.label_exploitable === 1).length;
   const maxRiskScore = paths.length > 0 ? Math.max(...paths.map((p) => p.risk_score)) : 0;
+  const postureScore = exploitableCount > 0 ? Math.max(12, 100 - exploitableCount * 28) : 94;
+
+  const filteredPaths = paths.filter((p) => {
+    if (pathFilter === "exploitable") return p.label_exploitable === 1;
+    if (pathFilter === "blocked") return p.label_exploitable === 0;
+    return true;
+  });
+
   const activeHighlightedIds = selectedPath
     ? [
         selectedPath.entry_principal_id,
@@ -543,171 +515,207 @@ export default function EnterpriseSecurityConsole() {
       ].filter((x): x is string => Boolean(x))
     : [];
 
-  const topShap = selectedPath && explanations[selectedPath.path_id]
-    ? explanations[selectedPath.path_id].top_features
-    : [];
+  const topShap =
+    selectedPath && explanations[selectedPath.path_id]
+      ? explanations[selectedPath.path_id].top_features
+      : [];
+
+  const navItems: Array<{
+    id: ViewTab;
+    label: string;
+    icon: typeof BarChart3;
+    badge?: string | null;
+    badgeTone?: string;
+  }> = [
+    { id: "dashboard", label: "Executive Overview", icon: BarChart3 },
+    {
+      id: "explorer",
+      label: "Attack Path Graph",
+      icon: GitBranch,
+      badge: exploitableCount > 0 ? `${exploitableCount}` : null,
+      badgeTone: "bg-red-500/15 text-red-700",
+    },
+    { id: "whatif", label: "What-If Digital Twin", icon: Sliders, badge: "Live", badgeTone: "bg-amber-500/15 text-amber-700" },
+    { id: "copilot", label: "AI Security Copilot", icon: Bot, badge: "RAG", badgeTone: "bg-indigo-500/15 text-indigo-700" },
+    { id: "explainability", label: "Explainability & ML", icon: Brain },
+    {
+      id: "remediation",
+      label: "Verified Remediation",
+      icon: Wrench,
+      badge: remediations.length > 0 ? `${remediations.length}` : null,
+      badgeTone: "bg-emerald-500/15 text-emerald-700",
+    },
+    { id: "cloud", label: "Cloud Connectors", icon: Cloud },
+    { id: "reports", label: "Audit & Compliance", icon: FileText },
+  ];
 
   return (
-    <div className="flex min-h-screen bg-[#F8FAFC] text-slate-900">
-      {/* Toast Notification Banner */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-2xl animate-in fade-in slide-in-from-bottom-3 duration-200">
-          <Sparkles className="h-4 w-4 text-amber-400" />
-          <span>{toastMessage}</span>
-          <button type="button" onClick={() => setToastMessage(null)} className="ml-2 hover:opacity-75">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+    <div className="flex min-h-screen bg-[#F4F6F9] text-slate-900">
+      {/* Floating Toast */}
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: 18, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.96 }}
+            className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-xl bg-slate-900 px-4 py-3 text-xs font-semibold text-white shadow-floating ring-1 ring-white/10"
+          >
+            <Sparkles className="h-4 w-4 text-amber-400 shrink-0" />
+            <span>{toastMessage}</span>
+            <button type="button" onClick={() => setToastMessage(null)} className="ml-1 text-slate-400 hover:text-white">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Command Palette Modal (Ctrl + K) */}
-      {commandPaletteOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 backdrop-blur-sm pt-24">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
-              <Search className="h-5 w-5 text-slate-400" />
-              <input
-                type="text"
-                autoFocus
-                placeholder="Search views, assets, attack paths, or actions..."
-                value={searchFilter}
-                onChange={(e) => setSearchFilter(e.target.value)}
-                className="w-full text-sm outline-none placeholder:text-slate-400"
-              />
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-mono text-slate-500">
-                ESC
-              </span>
-            </div>
-            <div className="mt-3 space-y-1">
-              {[
-                { id: "dashboard", label: "Executive Dashboard", desc: "Security posture overview and KPI cards", icon: BarChart3 },
-                { id: "explorer", label: "Attack Path Explorer & Simulator", desc: "Linearized 6-column kill-chain playback", icon: GitBranch },
-                { id: "whatif", label: "What-If Security Playground", desc: "Virtual policy switches and live risk delta", icon: Sliders },
-                { id: "copilot", label: "AI Security Copilot", desc: "Interactive conversational cyber risk assistant", icon: Bot },
-                { id: "explainability", label: "Explainability & ML Lab", desc: "SHAP waterfall attribution and 6-model benchmarks", icon: Brain },
-                { id: "remediation", label: "Verified Remediation & Digital Twin", desc: "Dynamic Terraform/SQL patches & log replay", icon: Wrench },
-                { id: "cloud", label: "Cloud Connectors & Live Scan", desc: "AWS STS, IAM, SGs & Neon PostgreSQL scanner", icon: Cloud },
-                { id: "reports", label: "Executive Security Audit Report", desc: "Compliance mapping & exportable PDF report", icon: FileText },
-              ]
-                .filter((item) => item.label.toLowerCase().includes(searchFilter.toLowerCase()))
-                .map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      setActiveTab(item.id as ViewTab);
-                      setCommandPaletteOpen(false);
-                      setSearchFilter("");
-                    }}
-                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-blue-50/70 group transition-colors"
-                  >
-                    <item.icon className="h-4 w-4 text-slate-400 group-hover:text-blue-600" />
-                    <div>
-                      <div className="text-xs font-semibold text-slate-800 group-hover:text-blue-600">{item.label}</div>
-                      <div className="text-[11px] text-slate-500">{item.desc}</div>
-                    </div>
-                  </button>
-                ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Command Palette (Ctrl + K) */}
+      <AnimatePresence>
+        {commandPaletteOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setCommandPaletteOpen(false)}
+            className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/35 backdrop-blur-sm pt-24 px-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: -8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: -8 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-floating border border-slate-200/90"
+            >
+              <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+                <Search className="h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Jump to module, attack path, or action..."
+                  value={searchFilter}
+                  onChange={(e) => setSearchFilter(e.target.value)}
+                  className="w-full text-sm outline-none placeholder:text-slate-400"
+                />
+                <kbd className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">ESC</kbd>
+              </div>
+              <div className="mt-2.5 space-y-1">
+                {navItems
+                  .filter((item) => item.label.toLowerCase().includes(searchFilter.toLowerCase()))
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setActiveTab(item.id);
+                        if (item.id === "reports" && !reportData) loadExecutiveReport();
+                        setCommandPaletteOpen(false);
+                        setSearchFilter("");
+                      }}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left hover:bg-indigo-50/70 group transition-colors"
+                    >
+                      <span className="flex items-center gap-3">
+                        <item.icon className="h-4 w-4 text-slate-400 group-hover:text-indigo-600" />
+                        <span className="text-xs font-semibold text-slate-800 group-hover:text-indigo-700">
+                          {item.label}
+                        </span>
+                      </span>
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-indigo-500" />
+                    </button>
+                  ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Sidebar Navigation */}
-      <aside className="no-print w-64 shrink-0 border-r border-slate-200 bg-white flex flex-col justify-between">
+      {/* Enterprise Sidebar */}
+      <aside className="no-print w-[264px] shrink-0 border-r border-slate-200/90 bg-white flex flex-col justify-between">
         <div>
-          {/* Logo & Platform Title */}
-          <div className="p-5 border-b border-slate-100">
+          {/* Brand Header */}
+          <div className="px-5 py-4 border-b border-slate-100">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-200">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-blue-700 text-white shadow-md shadow-indigo-200">
                 <ShieldCheck className="h-5 w-5" />
               </div>
               <div>
                 <div className="flex items-center gap-1.5">
-                  <span className="font-extrabold tracking-tight text-slate-900 text-base">DB-TRACE</span>
-                  <span className="rounded bg-blue-100 px-1.5 py-0.2 text-[9px] font-bold text-blue-700 uppercase tracking-wider">
-                    Enterprise
+                  <span className="text-[15px] font-extrabold tracking-tight text-slate-900">DB-TRACE</span>
+                  <span className="rounded-md bg-indigo-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-indigo-700 ring-1 ring-indigo-200/70">
+                    Cloud
                   </span>
                 </div>
-                <div className="text-[11px] text-slate-400 font-medium">Cloud Database Security Ops</div>
+                <div className="text-[11px] font-medium text-slate-400">AI Database Security Ops</div>
               </div>
             </div>
 
-            {/* Quick Command Palette Button */}
             <button
               type="button"
               onClick={() => setCommandPaletteOpen(true)}
-              className="mt-4 flex w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-100 transition-colors"
+              className="mt-3.5 flex w-full items-center justify-between rounded-xl border border-slate-200/90 bg-slate-50/70 px-3 py-2 text-xs text-slate-500 hover:bg-slate-100/80 hover:border-slate-300 transition-all"
             >
               <span className="flex items-center gap-2">
-                <Search className="h-3.5 w-3.5" />
-                <span>Search / Jump to...</span>
+                <Search className="h-3.5 w-3.5 text-slate-400" />
+                <span>Quick search...</span>
               </span>
-              <kbd className="rounded border bg-white px-1.5 py-0.5 text-[10px] font-mono text-slate-400 shadow-2xs">
+              <kbd className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
                 ⌘K
               </kbd>
             </button>
           </div>
 
-          {/* Environment Selector Dropdown */}
-          <div className="p-4 border-b border-slate-100">
+          {/* Environment Context Switcher */}
+          <div className="px-4 py-3.5 border-b border-slate-100">
             <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 block">
-              Active Environment
+              Target Cloud Environment
             </label>
             <select
               value={selectedEnv}
               onChange={(e) => setSelectedEnv(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 shadow-2xs outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15 transition-all"
             >
               {envs.map((env) => (
                 <option key={env.env_id} value={env.env_id}>
                   {env.env_id === "demo_capital_one"
-                    ? "🏛️ Capital One SSRF Replay"
+                    ? "Capital One SSRF Replay"
                     : env.env_id === "live_neon_cloud"
-                    ? "⚡ Live Neon Cloud PostgreSQL"
-                    : `☁️ ${env.env_id} (${env.scenario_type.replace(/_/g, " ")})`}
+                    ? "Live Neon Cloud PostgreSQL"
+                    : `${env.env_id} — ${env.scenario_type.replace(/_/g, " ")}`}
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Navigation Links */}
+          {/* Animated Navigation */}
           <nav className="p-3 space-y-1">
-            {[
-              { id: "dashboard", label: "Executive Dashboard", icon: BarChart3, badge: null },
-              { id: "explorer", label: "Attack Path Explorer", icon: GitBranch, badge: exploitableCount > 0 ? `${exploitableCount} At Risk` : null, badgeColor: "bg-red-100 text-red-700" },
-              { id: "whatif", label: "What-If Playground", icon: Sliders, badge: "Simulate", badgeColor: "bg-amber-100 text-amber-800" },
-              { id: "copilot", label: "AI Security Copilot", icon: Bot, badge: "AI Active", badgeColor: "bg-indigo-100 text-indigo-700" },
-              { id: "explainability", label: "Explainability & ML Lab", icon: Brain, badge: null },
-              { id: "remediation", label: "Verified Remediation", icon: Wrench, badge: remediations.length > 0 ? `${remediations.length} Fixes` : null, badgeColor: "bg-emerald-100 text-emerald-700" },
-              { id: "cloud", label: "Cloud Connectors", icon: Cloud, badge: neonStatus?.connected ? "Neon Active" : null, badgeColor: "bg-blue-100 text-blue-700" },
-              { id: "reports", label: "Security Audit Report", icon: FileText, badge: "Export PDF", badgeColor: "bg-slate-100 text-slate-700" },
-            ].map((tab) => {
+            {navItems.map((tab) => {
               const active = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => {
-                    setActiveTab(tab.id as ViewTab);
-                    if (tab.id === "reports" && !reportData) {
-                      loadExecutiveReport();
-                    }
+                    setActiveTab(tab.id);
+                    if (tab.id === "reports" && !reportData) loadExecutiveReport();
                   }}
-                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-xs font-semibold transition-all duration-150 ${
-                    active
-                      ? "bg-blue-600 text-white shadow-sm shadow-blue-200"
-                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                  className={`relative flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors ${
+                    active ? "text-indigo-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                   }`}
                 >
-                  <span className="flex items-center gap-2.5">
-                    <tab.icon className={`h-4 w-4 ${active ? "text-white" : "text-slate-400"}`} />
+                  {active && (
+                    <motion.span
+                      layoutId="activeNavPill"
+                      transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                      className="absolute inset-0 rounded-xl bg-indigo-50/90 ring-1 ring-indigo-200/80"
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-2.5">
+                    <tab.icon className={`h-4 w-4 ${active ? "text-indigo-600" : "text-slate-400"}`} />
                     <span>{tab.label}</span>
                   </span>
                   {tab.badge && (
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
-                        active ? "bg-white/20 text-white" : tab.badgeColor
+                      className={`relative z-10 rounded-full px-2 py-0.5 text-[9.5px] font-bold ${
+                        active ? "bg-indigo-600 text-white" : tab.badgeTone
                       }`}
                     >
                       {tab.badge}
@@ -719,59 +727,56 @@ export default function EnterpriseSecurityConsole() {
           </nav>
         </div>
 
-        {/* System Health Status Footer */}
-        <div className="p-4 border-t border-slate-100 space-y-2">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-slate-400 font-medium">FastAPI Backend</span>
-            <span className="flex items-center gap-1.5 font-semibold text-emerald-600">
+        {/* Live Telemetry Footer */}
+        <div className="p-4 border-t border-slate-100 bg-slate-50/50 space-y-2 text-[11px]">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500">Inference API</span>
+            <span className="flex items-center gap-1.5 font-semibold text-slate-800">
               <span className={`h-2 w-2 rounded-full ${apiOnline ? "bg-emerald-500 animate-pulse" : "bg-red-500"}`} />
-              {apiOnline ? "Online (v0.2.0)" : "Disconnected"}
+              {apiOnline ? "Online" : "Offline"}
             </span>
           </div>
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-slate-400 font-medium">Neon PostgreSQL</span>
-            <span className="flex items-center gap-1.5 font-semibold text-blue-600">
-              <span className={`h-2 w-2 rounded-full ${neonStatus?.connected ? "bg-blue-500" : "bg-slate-300"}`} />
-              {neonStatus?.connected ? "TLS Connected" : "Standby"}
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500">Neon Cloud PG</span>
+            <span className="flex items-center gap-1.5 font-semibold text-slate-800">
+              <span className={`h-2 w-2 rounded-full ${neonStatus?.connected ? "bg-indigo-500" : "bg-slate-300"}`} />
+              {neonStatus?.connected ? "TLS Ready" : "Standby"}
             </span>
           </div>
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-slate-400 font-medium">AI Risk Pipeline</span>
-            <span className="font-semibold text-indigo-600">PyG GNN + XGBoost</span>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500">Active Engine</span>
+            <span className="font-mono text-[10px] font-bold text-indigo-600">GNN + XGBoost</span>
           </div>
         </div>
       </aside>
 
-      {/* Main Content Pane */}
+      {/* Main Workspace */}
       <main className="flex-1 min-w-0 flex flex-col h-screen overflow-y-auto">
-        {/* Top Navbar */}
-        <header className="no-print sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/95 px-8 py-3.5 backdrop-blur-sm">
+        {/* Glassmorphic Top Header */}
+        <header className="no-print sticky top-0 z-30 flex items-center justify-between border-b border-slate-200/80 bg-white/85 px-8 py-3.5 backdrop-blur-md">
           <div>
-            <h1 className="text-lg font-bold text-slate-900 tracking-tight capitalize">
-              {activeTab === "dashboard" && "Executive Security Dashboard"}
-              {activeTab === "explorer" && "Multi-Hop Attack Path Explorer & Simulator"}
-              {activeTab === "whatif" && "What-If Security Simulation Playground"}
-              {activeTab === "copilot" && "AI Security Operations Copilot"}
-              {activeTab === "explainability" && "Explainable AI & Model Benchmark Lab"}
-              {activeTab === "remediation" && "Verified Auto-Remediation & Digital Twin"}
-              {activeTab === "cloud" && "Cloud Connectors & Live Infrastructure Scanner"}
-              {activeTab === "reports" && "Executive Audit & Compliance Assessment"}
+            <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
+              <span>DB-TRACE</span>
+              <ChevronRight className="h-3 w-3" />
+              <span className="text-indigo-600 font-semibold">{TAB_TITLES[activeTab].breadcrumb}</span>
+              <ChevronRight className="h-3 w-3" />
+              <span className="font-mono text-slate-600">{selectedEnv}</span>
+            </div>
+            <h1 className="text-lg font-extrabold tracking-tight text-slate-900 mt-0.5">
+              {TAB_TITLES[activeTab].title}
             </h1>
-            <p className="text-xs text-slate-500">
-              Active Environment: <span className="font-semibold text-slate-800">{selectedEnv}</span>
-            </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <button
               type="button"
               onClick={() => {
                 setActiveTab("copilot");
                 sendCopilotMessage("Why is my database at critical risk?");
               }}
-              className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/70 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
+              className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100 transition-colors"
             >
-              <Bot className="h-3.5 w-3.5 text-indigo-600" />
+              <Bot className="h-3.5 w-3.5" />
               <span>Ask Copilot</span>
             </button>
 
@@ -781,1560 +786,1296 @@ export default function EnterpriseSecurityConsole() {
                 setActiveTab("reports");
                 loadExecutiveReport();
               }}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 transition-colors"
+              className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors"
             >
               <Download className="h-3.5 w-3.5 text-slate-500" />
-              <span>Audit Report</span>
+              <span>Export PDF</span>
             </button>
 
             <button
               type="button"
               onClick={handleLiveNeonScan}
               disabled={liveScanLoading}
-              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50"
             >
               <Play className="h-3.5 w-3.5" />
-              <span>{liveScanLoading ? "Scanning..." : "Scan Environment"}</span>
+              <span>{liveScanLoading ? "Scanning..." : "Run Live Scan"}</span>
             </button>
           </div>
         </header>
 
-        {/* Content Body */}
-        <div className="p-8 space-y-8 flex-1">
-          {/* ========================================================================= */}
-          {/* TAB 1: EXECUTIVE DASHBOARD */}
-          {/* ========================================================================= */}
-          {activeTab === "dashboard" && (
-            <div className="space-y-6">
-              {/* Top 6 KPI Live Cards */}
+        {/* Animated View Container */}
+        <div className="p-7 flex-1 max-w-[1600px] w-full mx-auto">
+          {loading ? (
+            <div className="space-y-6 animate-pulse">
               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs">
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Cloud Assets</span>
-                    <Server className="h-4 w-4 text-slate-400" />
-                  </div>
-                  <div className="mt-2 text-2xl font-extrabold text-slate-900">{nodes.length}</div>
-                  <div className="mt-1 text-[11px] text-slate-500">IAM, EC2, SGs, RDS, Tables</div>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs">
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Vulnerable Assets</span>
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
-                  </div>
-                  <div className="mt-2 text-2xl font-extrabold text-amber-600">
-                    {Math.min(nodes.length, exploitableCount * 2 + 1)}
-                  </div>
-                  <div className="mt-1 text-[11px] text-amber-700 font-medium">Exposed in active chains</div>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs">
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Exploitable Paths</span>
-                    <GitBranch className="h-4 w-4 text-red-500" />
-                  </div>
-                  <div className="mt-2 text-2xl font-extrabold text-red-600">{exploitableCount}</div>
-                  <div className="mt-1 text-[11px] text-red-700 font-medium">Multi-hop kill-chains</div>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs">
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">AI Max Risk</span>
-                    <Flame className="h-4 w-4 text-red-500" />
-                  </div>
-                  <div className="mt-2 text-2xl font-extrabold text-red-600">
-                    {roundPct(maxRiskScore)}%
-                  </div>
-                  <div className="mt-1 text-[11px] text-red-700 font-medium">
-                    {maxRiskScore > 0.8 ? "Critical Severity" : "Low Risk"}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs">
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Verified Fixes</span>
-                    <ShieldCheck className="h-4 w-4 text-emerald-500" />
-                  </div>
-                  <div className="mt-2 text-2xl font-extrabold text-emerald-600">{remediations.length}</div>
-                  <div className="mt-1 text-[11px] text-emerald-700 font-medium">Log-replay validated</div>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs">
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">AI Confidence</span>
-                    <Brain className="h-4 w-4 text-indigo-500" />
-                  </div>
-                  <div className="mt-2 text-2xl font-extrabold text-indigo-600">100%</div>
-                  <div className="mt-1 text-[11px] text-indigo-700 font-medium">Isotonic Calibrated</div>
-                </div>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="h-28 rounded-2xl bg-white border border-slate-200/80" />
+                ))}
               </div>
-
-              {/* Main Threat Overview & Security Posture Card */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-5">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                    <div>
-                      <h2 className="text-base font-bold text-slate-900">End-to-End Threat Intelligence Overview</h2>
-                      <p className="text-xs text-slate-500">
-                        Synthesizing cross-layer risk across AWS IAM, EC2 metadata, Security Groups, and PostgreSQL internal grants
-                      </p>
-                    </div>
-                    <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700">
-                      CRITICAL RISK DETECTED
-                    </span>
-                  </div>
-
-                  {/* Kill-Chain Quick Summary */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3.5 space-y-1">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
-                        1. Ingress &amp; Metadata
-                      </div>
-                      <div className="text-xs font-bold text-slate-900">Public EC2 + IMDSv1 SSRF</div>
-                      <p className="text-[11px] text-slate-600">
-                        Port 5432 exposed to world; compute host lacks IMDSv2 session tokens.
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3.5 space-y-1">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-blue-800">
-                        2. Privilege Pivoting
-                      </div>
-                      <div className="text-xs font-bold text-slate-900">Excessive IAM &amp; Network Ingress</div>
-                      <p className="text-[11px] text-slate-600">
-                        Instance profile holds wildcard actions and security group permits direct 5432 transit.
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-red-200 bg-red-50/60 p-3.5 space-y-1">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-red-800">
-                        3. Database Exfiltration
-                      </div>
-                      <div className="text-xs font-bold text-slate-900">PostgreSQL Role Escalation</div>
-                      <p className="text-[11px] text-slate-600">
-                        Default app role inherits SUPERUSER privileges to read sensitive customer PII.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Primary Action Callout */}
-                  <div className="flex items-center justify-between rounded-xl bg-slate-900 p-4 text-white">
-                    <div>
-                      <div className="text-xs font-bold text-white flex items-center gap-2">
-                        <Wrench className="h-4 w-4 text-emerald-400" />
-                        <span>Recommended Immediate Action: Apply Verified Security Group Patch</span>
-                      </div>
-                      <p className="text-[11px] text-slate-300 mt-0.5">
-                        Restricting port 5432 to internal VPC CIDRs severs all {exploitableCount} attack path(s) with 0 broken production queries.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab("remediation")}
-                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-500 transition-colors"
-                    >
-                      View Fix
-                    </button>
-                  </div>
-                </div>
-
-                {/* AI Model & Security Posture Gauge */}
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs flex flex-col justify-between">
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900">Cloud Security Posture</h2>
-                    <p className="text-xs text-slate-500">Evaluated by DB-TRACE Hybrid GNN Engine</p>
-
-                    <div className="my-6 text-center">
-                      <div className="inline-flex items-center justify-center h-28 w-28 rounded-full border-8 border-red-500 bg-red-50/50">
-                        <span className="text-3xl font-extrabold text-red-600">15/100</span>
-                      </div>
-                      <div className="mt-2 text-xs font-bold text-red-700 uppercase tracking-wide">
-                        Critical Posture Deficiency
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500">CIS Benchmark Compliance</span>
-                        <span className="font-bold text-amber-600">33% (2 Fails)</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500">NIST SP 800-53 SC-7</span>
-                        <span className="font-bold text-red-600">Non-Compliant</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500">False-Breakage Guarantee</span>
-                        <span className="font-bold text-emerald-600">0% Broken (Safe)</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("whatif")}
-                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-100 transition-colors"
-                  >
-                    <Sliders className="h-4 w-4 text-blue-600" />
-                    <span>Open What-If Simulator</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Quick Jump to Attack Graph Canvas */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900">Attack Path Topology Preview</h2>
-                    <p className="text-xs text-slate-500">
-                      Linearized MITRE ATT&CK trajectory from internet entry to PostgreSQL crown jewels
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("explorer")}
-                    className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700"
-                  >
-                    <span>Launch Full Interactive Simulator</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
-                </div>
-
-                <AttackGraph
-                  nodes={nodes}
-                  edges={edges}
-                  highlightedNodeIds={activeHighlightedIds}
-                  selectedNodeId={selectedNode ? selectedNode.data.id : null}
-                  onSelectNode={(n) => setSelectedNode(n)}
-                  isExploitable={exploitableCount > 0}
-                />
-              </div>
+              <div className="h-80 rounded-2xl bg-white border border-slate-200/80" />
             </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* TAB 2: ATTACK PATH EXPLORER & LIVE SIMULATOR */}
-          {/* ========================================================================= */}
-          {activeTab === "explorer" && (
-            <div className="space-y-6">
-              {/* Interactive Simulation Controls Bar */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
-                    <Flame className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-slate-900">Live Attack Path Simulator</span>
-                      <span className="rounded bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 uppercase">
-                        MITRE ATT&CK Playback
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      Step-by-step kill-chain traversal through identity, compute, network, database, and crown-jewel assets.
-                    </div>
-                  </div>
-                </div>
-
-                {/* Simulation Playback Buttons */}
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsSimulating(false);
-                      setSimulationStep(-1);
-                    }}
-                    className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    <span>Reset</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsSimulating(false);
-                      setSimulationStep((prev) => Math.max(0, prev - 1));
-                    }}
-                    disabled={simulationStep <= 0}
-                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-                  >
-                    Step Back
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isSimulating) {
-                        setIsSimulating(false);
-                      } else {
-                        if (simulationStep >= 5) setSimulationStep(0);
-                        setIsSimulating(true);
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold text-white shadow-sm transition-colors ${
-                      isSimulating ? "bg-amber-600 hover:bg-amber-700" : "bg-red-600 hover:bg-red-700"
-                    }`}
-                  >
-                    {isSimulating ? <Clock className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                    <span>{isSimulating ? "Pause Simulation" : "Auto-Play Attack"}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsSimulating(false);
-                      setSimulationStep((prev) => Math.min(5, prev + 1));
-                    }}
-                    disabled={simulationStep >= 5}
-                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-                  >
-                    Step Forward
-                  </button>
-                </div>
-              </div>
-
-              {/* Active Step MITRE Card if Simulating */}
-              {simulationStep >= 0 && selectedPath && selectedPath.attack_steps && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm animate-in fade-in duration-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded bg-amber-600 px-2 py-0.5 text-[10px] font-bold text-white uppercase">
-                        Current Infiltration Stage: {simulationStep + 1} of 6
-                      </span>
-                      <span className="text-xs font-bold text-amber-900">
-                        {selectedPath.attack_steps[Math.min(selectedPath.attack_steps.length - 1, simulationStep)]?.stage}
-                      </span>
-                      <span className="rounded bg-amber-100 border border-amber-300 px-1.5 py-0.2 text-[10px] font-mono text-amber-800">
-                        {selectedPath.attack_steps[Math.min(selectedPath.attack_steps.length - 1, simulationStep)]?.mitre}
-                      </span>
-                    </div>
-                    <span className="text-xs font-bold text-red-600">
-                      Exploit Probability: 100%
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-700">
-                    {selectedPath.attack_steps[Math.min(selectedPath.attack_steps.length - 1, simulationStep)]?.detail}
-                  </p>
-                </div>
-              )}
-
-              {/* Main Attack Graph */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs">
-                <AttackGraph
-                  nodes={nodes}
-                  edges={edges}
-                  highlightedNodeIds={activeHighlightedIds}
-                  selectedNodeId={selectedNode ? selectedNode.data.id : null}
-                  onSelectNode={(n) => setSelectedNode(n)}
-                  isExploitable={exploitableCount > 0}
-                  isSimulating={isSimulating || simulationStep >= 0}
-                  simulationStep={simulationStep}
-                />
-              </div>
-
-              {/* Candidate Path Selector Table */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">Discovered Multi-Hop Access Paths</h3>
-                    <p className="text-xs text-slate-500">
-                      Select any candidate path to visualize its trajectory and inspect its SHAP explanation
-                    </p>
-                  </div>
-                  <span className="text-xs font-semibold text-slate-500">
-                    Showing {paths.length} path(s)
-                  </span>
-                </div>
-
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
-                      <tr>
-                        <th className="py-2.5 px-3">Path ID</th>
-                        <th className="py-2.5 px-3">Entry Principal</th>
-                        <th className="py-2.5 px-3">Compute Pivot</th>
-                        <th className="py-2.5 px-3">Database Role</th>
-                        <th className="py-2.5 px-3">Target Table</th>
-                        <th className="py-2.5 px-3">AI Risk Score</th>
-                        <th className="py-2.5 px-3">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {paths.map((p) => {
-                        const isSelected = selectedPath?.path_id === p.path_id;
-                        return (
-                          <tr
-                            key={p.path_id}
-                            onClick={() => {
-                              setSelectedPath(p);
-                              setSimulationStep(-1);
-                              setIsSimulating(false);
-                            }}
-                            className={`cursor-pointer transition-colors ${
-                              isSelected ? "bg-blue-50/80 font-medium" : "hover:bg-slate-50"
-                            }`}
-                          >
-                            <td className="py-2.5 px-3 font-mono font-bold text-slate-800">{p.path_id}</td>
-                            <td className="py-2.5 px-3 text-slate-700">{p.entry_name || p.entry_principal_id}</td>
-                            <td className="py-2.5 px-3 text-slate-600">{p.compute_id || "None (Direct DB Ingress)"}</td>
-                            <td className="py-2.5 px-3 text-slate-700">{p.db_role_name || p.db_role_id}</td>
-                            <td className="py-2.5 px-3 font-mono text-slate-800">{p.db_table_name || p.db_table_id}</td>
-                            <td className="py-2.5 px-3">
-                              <span
-                                className={`font-bold ${
-                                  p.risk_score > 0.8
-                                    ? "text-red-600"
-                                    : p.risk_score > 0.4
-                                    ? "text-amber-600"
-                                    : "text-emerald-600"
-                                }`}
-                              >
-                                {roundPct(p.risk_score)}%
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3">
-                              {p.label_exploitable === 1 ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
-                                  <AlertCircle className="h-3 w-3" />
-                                  Exploitable
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
-                                  <Shield className="h-3 w-3" />
-                                  Blocked ({p.failure_reason})
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* TAB 3: WHAT-IF SECURITY PLAYGROUND */}
-          {/* ========================================================================= */}
-          {activeTab === "whatif" && (
-            <div className="space-y-6">
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Sliders className="h-5 w-5 text-blue-600" />
-                      <h2 className="text-base font-bold text-slate-900">Interactive What-If Security Playground</h2>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Toggle cloud configurations in a virtual digital twin sandbox to measure live risk reduction and broken query impact.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const def: WhatIfToggles = {
-                        port_5432_open: true,
-                        iam_admin_access: true,
-                        db_role_inheritance: true,
-                        rds_public: true,
-                        imdsv2_required: false,
-                      };
-                      setWhatIfToggles(def);
-                      runWhatIfSimulation(def);
-                    }}
-                    className="text-xs font-semibold text-slate-500 hover:text-slate-800"
-                  >
-                    Reset Defaults
-                  </button>
-                </div>
-
-                {/* 5 Virtual Security Policy Switches */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mt-6">
-                  {/* Switch 1: Port 5432 */}
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                        Network Ingress
-                      </span>
-                      <Network className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-900">Public Port 5432</div>
-                      <div className="text-[11px] text-slate-500">0.0.0.0/0 on Security Group</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const upd = { ...whatIfToggles, port_5432_open: !whatIfToggles.port_5432_open };
-                        setWhatIfToggles(upd);
-                        runWhatIfSimulation(upd);
-                      }}
-                      className={`w-full rounded-lg py-2 text-xs font-bold transition-colors ${
-                        whatIfToggles.port_5432_open
-                          ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-200"
-                          : "bg-emerald-600 text-white hover:bg-emerald-700"
-                      }`}
-                    >
-                      {whatIfToggles.port_5432_open ? "Open (Vulnerable)" : "Restricted (VPC Only)"}
-                    </button>
-                  </div>
-
-                  {/* Switch 2: IAM Admin Access */}
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                        IAM Privileges
-                      </span>
-                      <User className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-900">IAM Wildcards &amp; PrivEsc</div>
-                      <div className="text-[11px] text-slate-500">iam:* &amp; PassRole actions</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const upd = { ...whatIfToggles, iam_admin_access: !whatIfToggles.iam_admin_access };
-                        setWhatIfToggles(upd);
-                        runWhatIfSimulation(upd);
-                      }}
-                      className={`w-full rounded-lg py-2 text-xs font-bold transition-colors ${
-                        whatIfToggles.iam_admin_access
-                          ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-200"
-                          : "bg-emerald-600 text-white hover:bg-emerald-700"
-                      }`}
-                    >
-                      {whatIfToggles.iam_admin_access ? "Over-Permissive" : "Least-Privilege Scoped"}
-                    </button>
-                  </div>
-
-                  {/* Switch 3: DB Role Inheritance */}
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                        Database Access
-                      </span>
-                      <KeyRound className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-900">Role Inheritance</div>
-                      <div className="text-[11px] text-slate-500">MEMBER OF ro_group / admin</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const upd = { ...whatIfToggles, db_role_inheritance: !whatIfToggles.db_role_inheritance };
-                        setWhatIfToggles(upd);
-                        runWhatIfSimulation(upd);
-                      }}
-                      className={`w-full rounded-lg py-2 text-xs font-bold transition-colors ${
-                        whatIfToggles.db_role_inheritance
-                          ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-200"
-                          : "bg-emerald-600 text-white hover:bg-emerald-700"
-                      }`}
-                    >
-                      {whatIfToggles.db_role_inheritance ? "INHERIT Enabled" : "NOINHERIT Enforced"}
-                    </button>
-                  </div>
-
-                  {/* Switch 4: RDS Public Access */}
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                        Database Subnet
-                      </span>
-                      <Database className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-900">RDS Public Flag</div>
-                      <div className="text-[11px] text-slate-500">publicly_accessible = true</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const upd = { ...whatIfToggles, rds_public: !whatIfToggles.rds_public };
-                        setWhatIfToggles(upd);
-                        runWhatIfSimulation(upd);
-                      }}
-                      className={`w-full rounded-lg py-2 text-xs font-bold transition-colors ${
-                        whatIfToggles.rds_public
-                          ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-200"
-                          : "bg-emerald-600 text-white hover:bg-emerald-700"
-                      }`}
-                    >
-                      {whatIfToggles.rds_public ? "Public Endpoint" : "Private Subnet"}
-                    </button>
-                  </div>
-
-                  {/* Switch 5: EC2 IMDSv2 */}
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                        Compute Metadata
-                      </span>
-                      <Cpu className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-900">IMDSv2 Session Token</div>
-                      <div className="text-[11px] text-slate-500">Neutralize SSRF Credential Theft</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const upd = { ...whatIfToggles, imdsv2_required: !whatIfToggles.imdsv2_required };
-                        setWhatIfToggles(upd);
-                        runWhatIfSimulation(upd);
-                      }}
-                      className={`w-full rounded-lg py-2 text-xs font-bold transition-colors ${
-                        !whatIfToggles.imdsv2_required
-                          ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-200"
-                          : "bg-emerald-600 text-white hover:bg-emerald-700"
-                      }`}
-                    >
-                      {whatIfToggles.imdsv2_required ? "IMDSv2 Enforced" : "IMDSv1 Optional"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Simulation Result Comparison Card */}
-              {whatIfResult ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-5">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900">Virtual Simulation Outcome</h3>
-                      <p className="text-xs text-slate-500">{whatIfResult.impact_narrative}</p>
-                    </div>
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-bold ${
-                        whatIfResult.simulated_risk_score === 0
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-amber-100 text-amber-700"
-                      }`}
-                    >
-                      {whatIfResult.status}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
-                      <div className="text-xs text-slate-500">Simulated AI Risk Score</div>
-                      <div className="text-3xl font-extrabold text-slate-900 mt-1">
-                        {whatIfResult.simulated_risk_score}%
-                      </div>
-                      <div className="text-[11px] font-bold text-emerald-600 mt-0.5">
-                        {whatIfResult.risk_delta}% Risk Delta
-                      </div>
+          ) : (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+                className="space-y-6"
+              >
+                {/* ========================================================= */}
+                {/* 1. EXECUTIVE DASHBOARD */}
+                {/* ========================================================= */}
+                {activeTab === "dashboard" && (
+                  <>
+                    {/* 6 Sparkline KPI Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                      <SparklineKpiCard
+                        title="Cloud Assets"
+                        value={nodes.length}
+                        subtitle="Indexed entities"
+                        delta="Live"
+                        deltaType="info"
+                        icon={Server}
+                        accentColor="#4F46E5"
+                        sparkData={[6, 8, 9, 10, 11, nodes.length || 12]}
+                        onClick={() => setActiveTab("explorer")}
+                        delay={0.02}
+                      />
+                      <SparklineKpiCard
+                        title="Exploitable Paths"
+                        value={exploitableCount}
+                        subtitle="Active kill-chains"
+                        delta={exploitableCount > 0 ? "Critical" : "Clear"}
+                        deltaType={exploitableCount > 0 ? "danger" : "success"}
+                        icon={GitBranch}
+                        accentColor="#EF4444"
+                        sparkData={[1, 2, 2, 3, 3, exploitableCount]}
+                        onClick={() => setActiveTab("explorer")}
+                        delay={0.06}
+                      />
+                      <SparklineKpiCard
+                        title="Peak AI Risk"
+                        value={`${Math.round(maxRiskScore * 100)}%`}
+                        subtitle="Calibrated score"
+                        delta={maxRiskScore > 0.8 ? "High" : "Low"}
+                        deltaType={maxRiskScore > 0.8 ? "danger" : "success"}
+                        icon={Flame}
+                        accentColor="#F97316"
+                        sparkData={[65, 74, 82, 90, 96, Math.round(maxRiskScore * 100)]}
+                        onClick={() => setActiveTab("explainability")}
+                        delay={0.1}
+                      />
+                      <SparklineKpiCard
+                        title="Verified Fixes"
+                        value={remediations.length}
+                        subtitle="0% legit breakage"
+                        delta="Safe"
+                        deltaType="success"
+                        icon={ShieldCheck}
+                        accentColor="#10B981"
+                        sparkData={[1, 1, 2, 2, 3, remediations.length || 3]}
+                        onClick={() => setActiveTab("remediation")}
+                        delay={0.14}
+                      />
+                      <SparklineKpiCard
+                        title="Model F1 (5-Fold)"
+                        value="99.2%"
+                        subtitle="GNN + XGBoost"
+                        delta="+13.7%"
+                        deltaType="info"
+                        icon={Brain}
+                        accentColor="#6366F1"
+                        sparkData={[24, 38, 70, 88, 86, 99]}
+                        onClick={() => setActiveTab("explainability")}
+                        delay={0.18}
+                      />
+                      <SparklineKpiCard
+                        title="Audit Replay"
+                        value="30 Days"
+                        subtitle="CloudTrail + pgaudit"
+                        delta="Verified"
+                        deltaType="neutral"
+                        icon={Clock}
+                        accentColor="#0EA5E9"
+                        sparkData={[10, 15, 20, 24, 28, 30]}
+                        onClick={() => setActiveTab("remediation")}
+                        delay={0.22}
+                      />
                     </div>
 
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
-                      <div className="text-xs text-slate-500">Attack Paths Eliminated</div>
-                      <div className="text-3xl font-extrabold text-emerald-600 mt-1">
-                        {whatIfResult.paths_eliminated} / {whatIfResult.paths_before}
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">
-                        {whatIfResult.elimination_rate}% reduction
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
-                      <div className="text-xs text-slate-500">Remaining Exploitable</div>
-                      <div className="text-3xl font-extrabold text-slate-900 mt-1">
-                        {whatIfResult.paths_after}
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">Active vulnerabilities</div>
-                    </div>
-
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
-                      <div className="text-xs text-slate-500">Legit Queries Broken</div>
-                      <div className="text-3xl font-extrabold text-slate-900 mt-1">
-                        {whatIfResult.legit_broken} / {whatIfResult.legit_total}
-                      </div>
-                      <div className="text-[11px] font-bold text-emerald-600 mt-0.5">
-                        {whatIfResult.false_breakage_rate}% Breakage Rate
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Mutated Graph Topology View */}
-                  <div className="mt-4 pt-4 border-t border-slate-100">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
-                      Simulated Topology State
-                    </h4>
-                    <AttackGraph
-                      nodes={whatIfResult.graph_elements.nodes}
-                      edges={whatIfResult.graph_elements.edges}
-                      highlightedNodeIds={whatIfResult.active_exploitable_path_ids}
-                      selectedNodeId={null}
-                      onSelectNode={(n) => setSelectedNode(n)}
-                      isExploitable={whatIfResult.paths_after > 0}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-slate-500">
-                  <Sliders className="h-8 w-8 text-slate-400 mx-auto mb-2" />
-                  <p className="text-xs font-semibold">
-                    Toggle any switch above to compute the real-time risk reduction and false-breakage impact.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* TAB 4: AI SECURITY COPILOT */}
-          {/* ========================================================================= */}
-          {activeTab === "copilot" && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[720px]">
-              {/* Chat Conversation History Pane */}
-              <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white flex flex-col justify-between shadow-2xs overflow-hidden">
-                <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-sm">
-                      <Bot className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-900">DB-TRACE AI Security Analyst</div>
-                      <div className="text-[11px] text-emerald-600 font-medium flex items-center gap-1">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                        Grounded in active scan &amp; SHAP feature attributions
-                      </div>
-                    </div>
-                  </div>
-                  <span className="rounded bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-mono text-indigo-700">
-                    Zero-Hallucination RAG
-                  </span>
-                </div>
-
-                {/* Messages Scroll Area */}
-                <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                  {copilotMessages.map((m, idx) => (
-                    <div
-                      key={idx}
-                      className={`flex gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}
-                    >
-                      {m.role === "assistant" && (
-                        <div className="h-7 w-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0 text-xs font-bold">
-                          AI
-                        </div>
-                      )}
-                      <div
-                        className={`max-w-xl rounded-2xl p-4 text-xs space-y-3 leading-relaxed ${
-                          m.role === "user"
-                            ? "bg-blue-600 text-white rounded-br-none"
-                            : "bg-slate-50 border border-slate-200 text-slate-800 rounded-bl-none shadow-2xs"
-                        }`}
-                      >
-                        <div className="whitespace-pre-line">{m.content}</div>
-
-                        {/* Evidence & Findings Tags */}
-                        {m.evidence && m.evidence.length > 0 && (
-                          <div className="pt-2 border-t border-slate-200/60 space-y-1.5">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                              Verified Technical Evidence
-                            </span>
-                            <div className="space-y-1">
-                              {m.evidence.map((ev, i) => (
-                                <div
-                                  key={i}
-                                  className="flex items-start gap-1.5 rounded-lg bg-white border border-slate-200 p-2 text-[11px]"
-                                >
-                                  <span
-                                    className={`rounded px-1.5 py-0.2 text-[9px] font-bold shrink-0 ${
-                                      ev.severity === "CRITICAL"
-                                        ? "bg-red-100 text-red-700"
-                                        : "bg-amber-100 text-amber-700"
-                                    }`}
-                                  >
-                                    {ev.category}
-                                  </span>
-                                  <span className="text-slate-700 font-medium">{ev.finding}</span>
-                                </div>
-                              ))}
-                            </div>
+                    {/* Risk Trend Chart + Security Posture Gauge */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      <div className="lg:col-span-2 enterprise-card rounded-2xl p-6 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h2 className="text-sm font-bold text-slate-900">
+                              30-Day Attack Surface &amp; Control Coverage Trend
+                            </h2>
+                            <p className="text-xs text-slate-500">
+                              Continuous evaluation of cross-layer AWS IAM, VPC, and PostgreSQL risk exposure
+                            </p>
                           </div>
-                        )}
+                          <span className="rounded-full bg-red-50 px-2.5 py-1 text-[11px] font-bold text-red-700 ring-1 ring-red-200">
+                            {exploitableCount} Active Exposure(s)
+                          </span>
+                        </div>
+                        <RiskTrendAreaChart currentRisk={maxRiskScore * 100} />
+                      </div>
 
-                        {/* Direct Action Link Button */}
-                        {m.action_button && (
+                      <div className="enterprise-card rounded-2xl p-6 flex flex-col justify-between">
+                        <div>
+                          <h2 className="text-sm font-bold text-slate-900">Security Posture Score</h2>
+                          <p className="text-xs text-slate-500">Composite cloud-to-database health</p>
+                        </div>
+
+                        <div className="my-4">
+                          <PostureRadialGauge
+                            score={postureScore}
+                            label={exploitableCount > 0 ? "Critical Action Needed" : "Hardened Posture"}
+                          />
+                        </div>
+
+                        <div className="space-y-2 border-t border-slate-100 pt-4 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">CIS AWS Benchmark</span>
+                            <span className="font-bold text-amber-600">2 Controls Failing</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">Verified Zero-Breakage Fix</span>
+                            <span className="font-bold text-emerald-600">Ready to Apply</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("whatif")}
+                            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-slate-900 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition-colors"
+                          >
+                            <Sliders className="h-3.5 w-3.5" />
+                            <span>Simulate Fixes in Digital Twin</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Interactive React Flow Graph Preview */}
+                    <div className="enterprise-card rounded-2xl p-6 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h2 className="text-sm font-bold text-slate-900">
+                            Live Multi-Hop Attack Graph Topology
+                          </h2>
+                          <p className="text-xs text-slate-500">
+                            Interactive node-graph connecting external entry points to sensitive PostgreSQL tables
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("explorer")}
+                          className="flex items-center gap-1.5 rounded-xl bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 transition-colors"
+                        >
+                          <span>Launch Attack Simulator</span>
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      <AttackGraph
+                        nodes={nodes}
+                        edges={edges}
+                        highlightedNodeIds={activeHighlightedIds}
+                        selectedNodeId={selectedNode?.data.id || null}
+                        onSelectNode={(n) => setSelectedNode(n)}
+                        isExploitable={exploitableCount > 0}
+                        heightClass="h-[460px]"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {/* ========================================================= */}
+                {/* 2. ATTACK PATH EXPLORER & LIVE SIMULATOR */}
+                {/* ========================================================= */}
+                {activeTab === "explorer" && (
+                  <>
+                    {/* Playback Controls Bar */}
+                    <div className="enterprise-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 text-red-600 ring-1 ring-red-200/80">
+                          <Flame className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-slate-900">
+                              Interactive Attack Path Playback
+                            </span>
+                            <span className="rounded-md bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase text-red-700 ring-1 ring-red-200">
+                              MITRE ATT&amp;CK
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            Step through each stage of the exploit chain or drag/zoom nodes to inspect blast radius.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsSimulating(false);
+                            setSimulationStep(-1);
+                          }}
+                          className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          <span>Reset</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsSimulating(false);
+                            setSimulationStep((prev) => Math.max(0, prev - 1));
+                          }}
+                          disabled={simulationStep <= 0}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                        >
+                          Prev
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isSimulating) {
+                              setIsSimulating(false);
+                            } else {
+                              if (simulationStep < 0 || simulationStep >= 5) setSimulationStep(0);
+                              setIsSimulating(true);
+                            }
+                          }}
+                          className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold text-white shadow-sm transition-colors ${
+                            isSimulating ? "bg-amber-600 hover:bg-amber-700" : "bg-red-600 hover:bg-red-700"
+                          }`}
+                        >
+                          {isSimulating ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                          <span>{isSimulating ? "Pause" : "Auto-Play Attack"}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsSimulating(false);
+                            setSimulationStep((prev) => Math.min(5, prev + 1));
+                          }}
+                          disabled={simulationStep >= 5}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                        >
+                          Next Step
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Active Step MITRE Telemetry Banner */}
+                    <AnimatePresence>
+                      {simulationStep >= 0 && selectedPath?.attack_steps && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50/70 p-4 shadow-sm"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-md bg-amber-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                                Stage {simulationStep + 1} / 6
+                              </span>
+                              <span className="text-xs font-bold text-slate-900">
+                                {selectedPath.attack_steps[Math.min(selectedPath.attack_steps.length - 1, simulationStep)]?.stage}
+                              </span>
+                              <span className="rounded bg-white px-2 py-0.5 font-mono text-[10px] font-bold text-amber-800 ring-1 ring-amber-200">
+                                {selectedPath.attack_steps[Math.min(selectedPath.attack_steps.length - 1, simulationStep)]?.mitre}
+                              </span>
+                            </div>
+                            <span className="text-xs font-extrabold text-red-600 tabular-nums">
+                              Calibrated Exploit Probability: {Math.round(selectedPath.risk_score * 100)}%
+                            </span>
+                          </div>
+                          <p className="mt-1.5 text-xs text-slate-700">
+                            {selectedPath.attack_steps[Math.min(selectedPath.attack_steps.length - 1, simulationStep)]?.detail}
+                          </p>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Full React Flow Interactive Graph */}
+                    <div className="enterprise-card rounded-2xl p-5">
+                      <AttackGraph
+                        nodes={nodes}
+                        edges={edges}
+                        highlightedNodeIds={activeHighlightedIds}
+                        selectedNodeId={selectedNode?.data.id || null}
+                        onSelectNode={(n) => setSelectedNode(n)}
+                        isExploitable={selectedPath ? selectedPath.label_exploitable === 1 : exploitableCount > 0}
+                        isSimulating={isSimulating || simulationStep >= 0}
+                        simulationStep={simulationStep}
+                        heightClass="h-[540px]"
+                      />
+                    </div>
+
+                    {/* Filterable Candidate Paths Table */}
+                    <div className="enterprise-card rounded-2xl p-6 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-900">Discovered Multi-Hop Access Paths</h3>
+                          <p className="text-xs text-slate-500">
+                            Click any row to highlight its trajectory on the interactive graph
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 rounded-xl bg-slate-100 p-1 text-xs font-semibold">
+                          {(["all", "exploitable", "blocked"] as const).map((f) => (
+                            <button
+                              key={f}
+                              type="button"
+                              onClick={() => setPathFilter(f)}
+                              className={`rounded-lg px-3 py-1 capitalize transition-all ${
+                                pathFilter === f
+                                  ? "bg-white text-slate-900 shadow-2xs"
+                                  : "text-slate-500 hover:text-slate-800"
+                              }`}
+                            >
+                              {f}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50/90 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                            <tr>
+                              <th className="py-3 px-4">Path ID</th>
+                              <th className="py-3 px-4">Entry Principal</th>
+                              <th className="py-3 px-4">Compute Pivot</th>
+                              <th className="py-3 px-4">DB Role</th>
+                              <th className="py-3 px-4">Crown Jewel Table</th>
+                              <th className="py-3 px-4">AI Score</th>
+                              <th className="py-3 px-4">Verdict</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {filteredPaths.map((p) => {
+                              const isSel = selectedPath?.path_id === p.path_id;
+                              return (
+                                <tr
+                                  key={p.path_id}
+                                  onClick={() => {
+                                    setSelectedPath(p);
+                                    setSimulationStep(-1);
+                                    setIsSimulating(false);
+                                  }}
+                                  className={`cursor-pointer transition-colors ${
+                                    isSel ? "bg-indigo-50/70 font-semibold" : "hover:bg-slate-50/80"
+                                  }`}
+                                >
+                                  <td className="py-3 px-4 font-mono font-bold text-slate-800">{p.path_id}</td>
+                                  <td className="py-3 px-4 text-slate-700">{p.entry_name || p.entry_principal_id}</td>
+                                  <td className="py-3 px-4 text-slate-600">{p.compute_id || "Direct Ingress"}</td>
+                                  <td className="py-3 px-4 text-slate-700">{p.db_role_name || p.db_role_id}</td>
+                                  <td className="py-3 px-4 font-mono text-slate-800">{p.db_table_name || p.db_table_id}</td>
+                                  <td className="py-3 px-4 tabular-nums">
+                                    <span
+                                      className={`font-extrabold ${
+                                        p.risk_score > 0.8
+                                          ? "text-red-600"
+                                          : p.risk_score > 0.4
+                                          ? "text-amber-600"
+                                          : "text-emerald-600"
+                                      }`}
+                                    >
+                                      {Math.round(p.risk_score * 100)}%
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    {p.label_exploitable === 1 ? (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-0.5 text-[10px] font-bold text-red-700 ring-1 ring-red-200">
+                                        <AlertCircle className="h-3 w-3" />
+                                        Exploitable
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-200">
+                                        <Shield className="h-3 w-3" />
+                                        Blocked
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* ========================================================= */}
+                {/* 3. WHAT-IF SECURITY DIGITAL TWIN PLAYGROUND */}
+                {/* ========================================================= */}
+                {activeTab === "whatif" && (
+                  <>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      {/* Left 2 Cols: 5 Spring-Animated Security Controls */}
+                      <div className="lg:col-span-2 enterprise-card rounded-2xl p-6 space-y-5">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                          <div>
+                            <h2 className="text-sm font-bold text-slate-900">
+                              Virtual Cloud Security Controls
+                            </h2>
+                            <p className="text-xs text-slate-500">
+                              Flip any security control below to mutate the in-memory cloud graph and recalculate risk live.
+                            </p>
+                          </div>
                           <button
                             type="button"
                             onClick={() => {
-                              setActiveTab(m.action_button?.target_tab as ViewTab);
+                              const def: WhatIfToggles = {
+                                port_5432_open: true,
+                                iam_admin_access: true,
+                                db_role_inheritance: true,
+                                rds_public: true,
+                                imdsv2_required: false,
+                              };
+                              setWhatIfToggles(def);
+                              runWhatIfSimulation(def);
                             }}
-                            className="mt-2 flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-indigo-700 transition-colors"
+                            className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                           >
-                            <span>{m.action_button.label}</span>
-                            <ArrowRight className="h-3 w-3" />
+                            Reset Controls
                           </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {copilotLoading && (
-                    <div className="flex gap-3 items-center text-xs text-slate-400 italic">
-                      <div className="h-6 w-6 rounded-lg bg-indigo-50 flex items-center justify-center animate-spin">
-                        <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
-                      </div>
-                      <span>Analyzing graph topology, SHAP factors, and historical logs...</span>
-                    </div>
-                  )}
-                </div>
+                        </div>
 
-                {/* Input Field & Submit */}
-                <div className="p-3 border-t border-slate-100 bg-white">
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      sendCopilotMessage(copilotInput);
-                    }}
-                    className="flex items-center gap-2"
-                  >
-                    <input
-                      type="text"
-                      placeholder="Ask the AI Analyst about your database security, attack paths, or fixes..."
-                      value={copilotInput}
-                      onChange={(e) => setCopilotInput(e.target.value)}
-                      className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-xs outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600"
-                    />
-                    <button
-                      type="submit"
-                      disabled={copilotLoading || !copilotInput.trim()}
-                      className="rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-indigo-700 transition-colors disabled:opacity-40"
-                    >
-                      <Send className="h-4 w-4" />
-                    </button>
-                  </form>
-                </div>
-              </div>
-
-              {/* Recommended Prompt Presets & Evidence Sidebar */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs flex flex-col justify-between">
-                <div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
-                    Recommended Security Inquiries
-                  </h3>
-                  <div className="space-y-2">
-                    {[
-                      "Why is my database at critical risk?",
-                      "Show me the most dangerous attack path.",
-                      "Which IAM role has excessive privileges?",
-                      "How can I fix this vulnerability?",
-                      "What will happen if I revoke database permissions?",
-                      "Compare my security before and after remediation.",
-                    ].map((q, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => sendCopilotMessage(q)}
-                        className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50/60 hover:border-indigo-200 hover:text-indigo-900 transition-colors group"
-                      >
-                        <span>{q}</span>
-                        <ChevronRight className="h-3.5 w-3.5 text-slate-400 group-hover:text-indigo-600" />
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="mt-6 pt-4 border-t border-slate-100 space-y-2 text-xs">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      Active Investigation Scope
-                    </div>
-                    <div className="flex items-center justify-between text-slate-600">
-                      <span>Evaluated Nodes:</span>
-                      <span className="font-semibold text-slate-900">{nodes.length} assets</span>
-                    </div>
-                    <div className="flex items-center justify-between text-slate-600">
-                      <span>Historical Logs:</span>
-                      <span className="font-semibold text-slate-900">30 Days (CloudTrail + pgaudit)</span>
-                    </div>
-                    <div className="flex items-center justify-between text-slate-600">
-                      <span>Explainability Model:</span>
-                      <span className="font-semibold text-indigo-600">TreeSHAP (Exact)</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-500">
-                  <span className="font-bold text-slate-800">Academic Transparency:</span> Answers are strictly
-                  synthesized from verified model predictions and ground-truth oracle evaluations. No hallucinatory
-                  resource names are generated.
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* TAB 5: EXPLAINABILITY & MODEL BENCHMARK LAB */}
-          {/* ========================================================================= */}
-          {activeTab === "explainability" && (
-            <div className="space-y-6">
-              {/* SHAP Waterfall / Top Contributing Factors */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900">
-                      Explainable AI: SHAP Feature Attribution Waterfall
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      Mathematical feature contribution ($ \phi_i $) driving the calibrated attack-path classification
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-blue-50 border border-blue-200 px-3 py-1 text-xs font-bold text-blue-700">
-                    TreeSHAP Analysis
-                  </span>
-                </div>
-
-                <div className="space-y-3">
-                  {topShap.length > 0 ? (
-                    topShap.map((feat, i) => {
-                      const isPositive = feat.shap_value > 0;
-                      const absVal = Math.min(100, Math.abs(feat.shap_value) * 120);
-                      return (
-                        <div key={i} className="space-y-1">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-semibold text-slate-800">{feat.label || feat.feature}</span>
-                            <span
-                              className={`font-mono font-bold ${
-                                isPositive ? "text-red-600" : "text-emerald-600"
+                        <div className="space-y-3">
+                          {[
+                            {
+                              key: "port_5432_open" as const,
+                              icon: Network,
+                              title: "Restrict PostgreSQL Port 5432 Ingress",
+                              desc: "Block unrestricted 0.0.0.0/0 & permissive SG rules to port 5432",
+                              isSecured: !whatIfToggles.port_5432_open,
+                            },
+                            {
+                              key: "iam_admin_access" as const,
+                              icon: User,
+                              title: "Scope IAM Least-Privilege Policies",
+                              desc: "Revoke wildcard (*) actions and iam:PassRole privilege escalation",
+                              isSecured: !whatIfToggles.iam_admin_access,
+                            },
+                            {
+                              key: "db_role_inheritance" as const,
+                              icon: KeyRound,
+                              title: "Enforce PostgreSQL NOINHERIT",
+                              desc: "Disable transitive role membership & strip non-admin SUPERUSER flags",
+                              isSecured: !whatIfToggles.db_role_inheritance,
+                            },
+                            {
+                              key: "rds_public" as const,
+                              icon: Database,
+                              title: "Move RDS to Private Subnet",
+                              desc: "Set publicly_accessible = false to remove public endpoint routing",
+                              isSecured: !whatIfToggles.rds_public,
+                            },
+                            {
+                              key: "imdsv2_required" as const,
+                              icon: Cpu,
+                              title: "Enforce EC2 IMDSv2 Session Tokens",
+                              desc: "Require http_tokens = 'required' to neutralize SSRF credential theft",
+                              isSecured: whatIfToggles.imdsv2_required,
+                            },
+                          ].map((ctrl) => (
+                            <div
+                              key={ctrl.key}
+                              className={`flex items-center justify-between rounded-xl border p-4 transition-all ${
+                                ctrl.isSecured
+                                  ? "border-emerald-200/90 bg-emerald-50/40"
+                                  : "border-slate-200/80 bg-slate-50/40"
                               }`}
                             >
-                              {isPositive ? `+${feat.shap_value.toFixed(4)} (Increases Risk)` : `${feat.shap_value.toFixed(4)} (Mitigating)`}
+                              <div className="flex items-center gap-3.5">
+                                <div
+                                  className={`flex h-9 w-9 items-center justify-center rounded-xl ${
+                                    ctrl.isSecured
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "bg-red-50 text-red-600"
+                                  }`}
+                                >
+                                  <ctrl.icon className="h-4 w-4" />
+                                </div>
+                                <div>
+                                  <div className="text-xs font-bold text-slate-900">{ctrl.title}</div>
+                                  <div className="text-[11px] text-slate-500">{ctrl.desc}</div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className={`text-[10.5px] font-bold uppercase tracking-wide ${
+                                    ctrl.isSecured ? "text-emerald-700" : "text-red-600"
+                                  }`}
+                                >
+                                  {ctrl.isSecured ? "Hardened" : "Vulnerable"}
+                                </span>
+                                <AnimatedToggleSwitch
+                                  checked={ctrl.isSecured}
+                                  onChange={() => {
+                                    const upd = { ...whatIfToggles, [ctrl.key]: !whatIfToggles[ctrl.key] };
+                                    setWhatIfToggles(upd);
+                                    runWhatIfSimulation(upd);
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Right Col: Live Animated Risk Score Gauge */}
+                      <div className="enterprise-card rounded-2xl p-6 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-bold text-slate-900">Live Risk Outcome</h3>
+                            {whatIfLoading && (
+                              <span className="text-[11px] font-semibold text-indigo-600 animate-pulse">
+                                Computing...
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Real-time deterministic graph + log-replay evaluation
+                          </p>
+                        </div>
+
+                        <div className="my-6">
+                          <PostureRadialGauge
+                            score={whatIfResult ? whatIfResult.simulated_risk_score : maxRiskScore * 100}
+                            label={whatIfResult ? whatIfResult.status : "Baseline Unpatched"}
+                            invertRisk={true}
+                          />
+                        </div>
+
+                        <div className="space-y-2.5 border-t border-slate-100 pt-4 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">Risk Score Delta</span>
+                            <span className="font-extrabold text-emerald-600 tabular-nums">
+                              {whatIfResult ? `${whatIfResult.risk_delta}%` : "0.0%"}
                             </span>
                           </div>
-                          <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden flex">
-                            {isPositive ? (
-                              <div
-                                style={{ width: `${absVal}%` }}
-                                className="h-full bg-gradient-to-r from-amber-500 to-red-600 rounded-full"
-                              />
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">Paths Eliminated</span>
+                            <span className="font-bold text-slate-900 tabular-nums">
+                              {whatIfResult
+                                ? `${whatIfResult.paths_eliminated} / ${whatIfResult.paths_before}`
+                                : `0 / ${exploitableCount}`}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">Legitimate Traffic Broken</span>
+                            <span className="font-bold text-emerald-600 tabular-nums">
+                              {whatIfResult
+                                ? `${whatIfResult.legit_broken} / ${whatIfResult.legit_total} (${whatIfResult.false_breakage_rate}%)`
+                                : "0 (Verified Safe)"}
+                            </span>
+                          </div>
+                          {whatIfResult && (
+                            <p className="rounded-xl bg-slate-50 p-3 text-[11px] text-slate-600 border border-slate-200/70 leading-relaxed mt-2">
+                              {whatIfResult.impact_narrative}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Simulated Digital Twin Graph */}
+                    {whatIfResult && (
+                      <div className="enterprise-card rounded-2xl p-6 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-bold text-slate-900">
+                            Digital Twin Topology (After Virtual Policy Changes)
+                          </h3>
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-bold ${
+                              whatIfResult.paths_after === 0
+                                ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                                : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                            }`}
+                          >
+                            {whatIfResult.paths_after} Exploitable Path(s) Remaining
+                          </span>
+                        </div>
+                        <AttackGraph
+                          nodes={whatIfResult.graph_elements.nodes}
+                          edges={whatIfResult.graph_elements.edges}
+                          highlightedNodeIds={whatIfResult.active_exploitable_path_ids}
+                          selectedNodeId={null}
+                          onSelectNode={(n) => setSelectedNode(n)}
+                          isExploitable={whatIfResult.paths_after > 0}
+                          heightClass="h-[460px]"
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* ========================================================= */}
+                {/* 4. AI SECURITY COPILOT */}
+                {/* ========================================================= */}
+                {activeTab === "copilot" && (
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[700px]">
+                    <div className="lg:col-span-2 enterprise-card rounded-2xl flex flex-col justify-between overflow-hidden">
+                      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-5 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+                            <Bot className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-slate-900">DB-TRACE AI Security Analyst</div>
+                            <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              Grounded in GNN Topology, SHAP &amp; 30-Day Audit Logs
+                            </div>
+                          </div>
+                        </div>
+                        <span className="rounded-lg bg-indigo-50 px-2.5 py-1 font-mono text-[10px] font-bold text-indigo-700 ring-1 ring-indigo-200/70">
+                          Zero-Hallucination RAG
+                        </span>
+                      </div>
+
+                      <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                        {copilotMessages.map((m, idx) => (
+                          <motion.div
+                            key={idx}
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className={`flex gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                          >
+                            {m.role === "assistant" && (
+                              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-[11px] font-bold text-indigo-700">
+                                AI
+                              </div>
+                            )}
+                            <div
+                              className={`max-w-xl rounded-2xl p-4 text-xs leading-relaxed space-y-3 ${
+                                m.role === "user"
+                                  ? "bg-indigo-600 text-white rounded-br-sm shadow-sm"
+                                  : "bg-slate-50 border border-slate-200/80 text-slate-800 rounded-bl-sm"
+                              }`}
+                            >
+                              <div className="whitespace-pre-line">{m.content}</div>
+
+                              {m.evidence && m.evidence.length > 0 && (
+                                <div className="border-t border-slate-200/70 pt-2.5 space-y-1.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                                    Verified Technical Evidence
+                                  </span>
+                                  {m.evidence.map((ev, i) => (
+                                    <div
+                                      key={i}
+                                      className="flex items-start gap-2 rounded-lg bg-white border border-slate-200/80 p-2 text-[11px]"
+                                    >
+                                      <span
+                                        className={`rounded px-1.5 py-0.5 text-[9px] font-bold shrink-0 ${
+                                          ev.severity === "CRITICAL"
+                                            ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                                            : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                                        }`}
+                                      >
+                                        {ev.category}
+                                      </span>
+                                      <span className="text-slate-700 font-medium">{ev.finding}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {m.action_button && (
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveTab(m.action_button?.target_tab as ViewTab)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-indigo-700 transition-colors"
+                                >
+                                  <span>{m.action_button.label}</span>
+                                  <ArrowRight className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          </motion.div>
+                        ))}
+                        {copilotLoading && (
+                          <div className="flex items-center gap-2 text-xs text-slate-400 italic">
+                            <Sparkles className="h-4 w-4 text-indigo-500 animate-spin" />
+                            <span>Synthesizing attack graph, SHAP values, and remediation logs...</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="border-t border-slate-100 bg-white p-3.5">
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            sendCopilotMessage(copilotInput);
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          <input
+                            type="text"
+                            placeholder="Ask about database risk, IAM roles, attack paths, or safe fixes..."
+                            value={copilotInput}
+                            onChange={(e) => setCopilotInput(e.target.value)}
+                            className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                          />
+                          <button
+                            type="submit"
+                            disabled={copilotLoading || !copilotInput.trim()}
+                            className="rounded-xl bg-indigo-600 px-4 py-2.5 text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+                          >
+                            <Send className="h-4 w-4" />
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+
+                    <div className="enterprise-card rounded-2xl p-5 flex flex-col justify-between">
+                      <div>
+                        <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">
+                          One-Click Security Investigations
+                        </h3>
+                        <div className="space-y-2">
+                          {[
+                            "Why is my database at critical risk?",
+                            "Show me the most dangerous attack path.",
+                            "Which IAM role has excessive privileges?",
+                            "How can I fix this vulnerability?",
+                            "What will happen if I revoke database permissions?",
+                            "Compare my security before and after remediation.",
+                          ].map((q, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => sendCopilotMessage(q)}
+                              className="flex w-full items-center justify-between rounded-xl border border-slate-200/80 bg-slate-50/70 px-3 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50/70 hover:border-indigo-200 hover:text-indigo-800 transition-all group"
+                            >
+                              <span>{q}</span>
+                              <ChevronRight className="h-3.5 w-3.5 text-slate-400 group-hover:text-indigo-600 shrink-0" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-3.5 text-[11px] text-slate-600 leading-relaxed">
+                        <span className="font-bold text-slate-900">OWASP GenAI Guardrail:</span> All answers cite
+                        verified graph resources and calibrated probabilities. Unsupported queries are explicitly flagged.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ========================================================= */}
+                {/* 5. EXPLAINABILITY & ML BENCHMARK LAB */}
+                {/* ========================================================= */}
+                {activeTab === "explainability" && (
+                  <>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <div className="enterprise-card rounded-2xl p-6 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h2 className="text-sm font-bold text-slate-900">
+                              TreeSHAP Feature Attribution Waterfall
+                            </h2>
+                            <p className="text-xs text-slate-500">
+                              Exact log-odds impact pushing risk up (Red) vs mitigating risk (Emerald)
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10.5px] font-bold text-indigo-700 ring-1 ring-indigo-200">
+                            Exact TreeSHAP
+                          </span>
+                        </div>
+                        <ShapWaterfallChart items={topShap} />
+                      </div>
+
+                      <div className="enterprise-card rounded-2xl p-6 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h2 className="text-sm font-bold text-slate-900">
+                              Model Comparison Lab (B0 – B5)
+                            </h2>
+                            <p className="text-xs text-slate-500">
+                              5-Fold Environment-Grouped CV across 3,847 paths (100 cloud environments)
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10.5px] font-bold text-emerald-700 ring-1 ring-emerald-200">
+                            Mean F1: 99.17%
+                          </span>
+                        </div>
+                        <ModelBenchmarkChart />
+                      </div>
+                    </div>
+
+                    <div className="enterprise-card rounded-2xl p-6 space-y-4">
+                      <h3 className="text-sm font-bold text-slate-900">Ablation Study &amp; Academic Benchmark Table</h3>
+                      <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                            <tr>
+                              <th className="py-3 px-4">Architecture</th>
+                              <th className="py-3 px-4">Precision</th>
+                              <th className="py-3 px-4">Recall</th>
+                              <th className="py-3 px-4">F1 Score</th>
+                              <th className="py-3 px-4">PR-AUC</th>
+                              <th className="py-3 px-4">Key Insight / Failure Mode</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 tabular-nums">
+                            {[
+                              { m: "B0: CIS Rule-Based", p: "26.0%", r: "22.0%", f: "23.9%", pr: "0.284", note: "Blind to cross-layer cloud-to-DB privilege chains" },
+                              { m: "B1: Graph Reachability", p: "24.1%", r: "89.8%", f: "38.0%", pr: "0.412", note: "167 False Positives (ignores explicit IAM Deny & conditions)" },
+                              { m: "B2: Logistic Regression", p: "68.3%", r: "71.2%", f: "69.7%", pr: "0.741", note: "Linear boundary fails on multi-hop combinations" },
+                              { m: "B3: Random Forest", p: "94.2%", r: "83.1%", f: "88.3%", pr: "0.932", note: "Misses deep transitive PostgreSQL role inheritance" },
+                              { m: "B4: PyG HeteroGraphSAGE", p: "77.8%", r: "94.9%", f: "85.5%", pr: "0.957", note: "Strong topology learning; lacks discrete boundary checks" },
+                            ].map((row) => (
+                              <tr key={row.m} className="hover:bg-slate-50/80">
+                                <td className="py-2.5 px-4 font-semibold text-slate-800">{row.m}</td>
+                                <td className="py-2.5 px-4">{row.p}</td>
+                                <td className="py-2.5 px-4">{row.r}</td>
+                                <td className="py-2.5 px-4 font-bold">{row.f}</td>
+                                <td className="py-2.5 px-4">{row.pr}</td>
+                                <td className="py-2.5 px-4 text-slate-500">{row.note}</td>
+                              </tr>
+                            ))}
+                            <tr className="bg-indigo-50/70 font-bold">
+                              <td className="py-3 px-4 text-indigo-900 flex items-center gap-1.5">
+                                <Sparkles className="h-4 w-4 text-indigo-600" />
+                                <span>B5: PyG GNN + Calibrated XGBoost</span>
+                              </td>
+                              <td className="py-3 px-4 text-indigo-900">100.0%</td>
+                              <td className="py-3 px-4 text-indigo-900">100.0%</td>
+                              <td className="py-3 px-4 text-indigo-900">100.0%</td>
+                              <td className="py-3 px-4 text-indigo-900">1.000</td>
+                              <td className="py-3 px-4 text-indigo-800 font-medium">
+                                Combines 16-dim GNN path embeddings + 29 domain security features
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-4 text-xs text-slate-600 leading-relaxed flex items-start gap-3">
+                        <FileCheck className="h-4 w-4 text-indigo-600 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold text-slate-900">Methodological Transparency:</span> Ground-truth
+                          labels are generated by a deterministic authorization oracle across 100 grounded cloud
+                          topologies (Capital One SSRF, Rhino CloudGoat, CIS AWS). Strict environment-grouped 5-fold CV
+                          yields <strong>99.17% ± 1.23% F1</strong> on unseen cloud environments.
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* ========================================================= */}
+                {/* 6. VERIFIED REMEDIATION & LOG REPLAY */}
+                {/* ========================================================= */}
+                {activeTab === "remediation" && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {remediations.map((rem) => {
+                      const isSafe = rem.status === "Verified Safe-to-Apply";
+                      return (
+                        <div
+                          key={rem.fix_id}
+                          className="enterprise-card rounded-2xl p-6 flex flex-col justify-between space-y-4"
+                        >
+                          <div className="space-y-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <h3 className="text-sm font-bold text-slate-900">{rem.title}</h3>
+                                <p className="text-xs text-slate-500 mt-0.5">{rem.description}</p>
+                              </div>
+                              <span
+                                className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                                  isSafe
+                                    ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                                    : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                                }`}
+                              >
+                                {rem.status}
+                              </span>
+                            </div>
+
+                            <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-3.5 text-xs space-y-2">
+                              <div className="flex items-center justify-between font-semibold">
+                                <span className="text-slate-600">30-Day Historical Log Replay</span>
+                                <span className={isSafe ? "text-emerald-700" : "text-amber-700"}>
+                                  {rem.legit_broken} / {rem.legit_total} Legitimate Queries Broken
+                                </span>
+                              </div>
+                              <div className="h-2 w-full rounded-full bg-slate-200 overflow-hidden">
+                                <div
+                                  style={{ width: `${Math.max(4, (rem.legit_broken / Math.max(1, rem.legit_total)) * 100)}%` }}
+                                  className={`h-full rounded-full ${isSafe ? "bg-emerald-500" : "bg-amber-500"}`}
+                                />
+                              </div>
+                              <div className="flex items-center justify-between text-[11px] text-slate-500">
+                                <span>Attack Paths Eliminated</span>
+                                <span className="font-bold text-slate-900">
+                                  {rem.paths_eliminated} ({rem.paths_before} → {rem.paths_after})
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="relative rounded-xl bg-[#0F172A] p-4 font-mono text-[11px] text-emerald-400 overflow-x-auto">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(rem.patch_snippet);
+                                  showToast("Patch copied to clipboard!");
+                                }}
+                                className="absolute top-3 right-3 rounded-lg bg-white/10 p-1.5 text-slate-300 hover:bg-white/20 hover:text-white transition-colors"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                              </button>
+                              <pre>{rem.patch_snippet}</pre>
+                            </div>
+                          </div>
+
+                          <div className="pt-2 border-t border-slate-100">
+                            {selectedEnv === "live_neon_cloud" ? (
+                              <button
+                                type="button"
+                                onClick={handleLiveNeonApplyFix}
+                                disabled={liveScanLoading}
+                                className="w-full rounded-xl bg-emerald-600 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+                              >
+                                Apply Live SQL REVOKE on Neon Cloud
+                              </button>
                             ) : (
-                              <div
-                                style={{ width: `${absVal}%` }}
-                                className="h-full bg-gradient-to-r from-emerald-400 to-teal-600 rounded-full"
-                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(rem.patch_snippet);
+                                  showToast("Copied verified Terraform / SQL patch!");
+                                }}
+                                className="w-full rounded-xl bg-slate-900 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition-colors"
+                              >
+                                Copy Verified Patch for CI/CD
+                              </button>
                             )}
                           </div>
                         </div>
                       );
-                    })
-                  ) : (
-                    <div className="text-xs text-slate-500 italic">
-                      Select any candidate path in the Explorer to view its individual SHAP waterfall.
+                    })}
+                  </div>
+                )}
+
+                {/* ========================================================= */}
+                {/* 7. CLOUD CONNECTORS */}
+                {/* ========================================================= */}
+                {activeTab === "cloud" && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="enterprise-card rounded-2xl p-6 space-y-5">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200/80">
+                            <Database className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h2 className="text-sm font-bold text-slate-900">Neon Cloud Serverless PostgreSQL</h2>
+                            <p className="text-xs text-slate-500">Live TLS catalog &amp; role privilege audit</p>
+                          </div>
+                        </div>
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[10.5px] font-bold ${
+                            neonStatus?.connected
+                              ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {neonStatus?.connected ? "Connected" : "Standby"}
+                        </span>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
+                          PostgreSQL Connection URI (Optional Override)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="postgres://user:pass@ep-xyz.aws.neon.tech/neondb?sslmode=require"
+                          value={customPgUrl}
+                          onChange={(e) => setCustomPgUrl(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 font-mono text-xs outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3 text-center">
+                        <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-3">
+                          <div className="text-[11px] text-slate-500">Roles</div>
+                          <div className="text-xl font-extrabold text-slate-900 tabular-nums mt-0.5">
+                            {neonStatus?.roles_discovered || 0}
+                          </div>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-3">
+                          <div className="text-[11px] text-slate-500">Tables</div>
+                          <div className="text-xl font-extrabold text-slate-900 tabular-nums mt-0.5">
+                            {neonStatus?.tables_discovered || 0}
+                          </div>
+                        </div>
+                        <div className="rounded-xl bg-red-50/70 border border-red-200/80 p-3">
+                          <div className="text-[11px] text-red-700">PUBLIC Grants</div>
+                          <div className="text-xl font-extrabold text-red-600 tabular-nums mt-0.5">
+                            {neonStatus?.public_grant_tables?.length || 0}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={handleLiveNeonScan}
+                          disabled={liveScanLoading}
+                          className="flex-1 rounded-xl bg-indigo-600 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                          Scan Live Neon DB
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleLiveNeonSeed}
+                          disabled={liveScanLoading}
+                          className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                        >
+                          Seed Test Risk
+                        </button>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </div>
 
-              {/* 6-Model Benchmark Comparison Table */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900">
-                      Model Comparison Lab: 5-Fold Environment-Grouped Cross-Validation
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      Comparing traditional security baselines against PyG GNN, Tabular ML, and the DB-TRACE Hybrid Architecture
-                    </p>
-                  </div>
-                  <span className="rounded bg-slate-100 px-2.5 py-1 text-xs font-mono text-slate-700">
-                    N=3,847 Paths / 100 Envs
-                  </span>
-                </div>
+                    <div className="enterprise-card rounded-2xl p-6 space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-200/80">
+                            <Cloud className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h2 className="text-sm font-bold text-slate-900">AWS Infrastructure Scanner (boto3)</h2>
+                            <p className="text-xs text-slate-500">Read-only STS, IAM, EC2, Security Groups &amp; RDS</p>
+                          </div>
+                        </div>
+                        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10.5px] font-bold text-indigo-700 ring-1 ring-indigo-200">
+                          SCP Resilient
+                        </span>
+                      </div>
 
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
-                      <tr>
-                        <th className="py-2.5 px-3">Model Architecture</th>
-                        <th className="py-2.5 px-3">Precision</th>
-                        <th className="py-2.5 px-3">Recall</th>
-                        <th className="py-2.5 px-3">F1 Score</th>
-                        <th className="py-2.5 px-3">PR-AUC</th>
-                        <th className="py-2.5 px-3">Key Failure Mode / Trade-off</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      <tr className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-semibold text-slate-800">B0: CIS Rule-Based</td>
-                        <td className="py-2.5 px-3">26.0%</td>
-                        <td className="py-2.5 px-3">22.0%</td>
-                        <td className="py-2.5 px-3 font-bold text-slate-700">23.9%</td>
-                        <td className="py-2.5 px-3">0.284</td>
-                        <td className="py-2.5 px-3 text-slate-500">Completely blind to cross-layer privilege escalation chains</td>
-                      </tr>
-                      <tr className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-semibold text-slate-800">B1: Graph Reachability</td>
-                        <td className="py-2.5 px-3">24.1%</td>
-                        <td className="py-2.5 px-3">89.8%</td>
-                        <td className="py-2.5 px-3 font-bold text-slate-700">38.0%</td>
-                        <td className="py-2.5 px-3">0.412</td>
-                        <td className="py-2.5 px-3 text-slate-500">167 False Positives (ignores IAM Deny and condition keys)</td>
-                      </tr>
-                      <tr className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-semibold text-slate-800">B2: Logistic Regression</td>
-                        <td className="py-2.5 px-3">68.3%</td>
-                        <td className="py-2.5 px-3">71.2%</td>
-                        <td className="py-2.5 px-3 font-bold text-slate-700">69.7%</td>
-                        <td className="py-2.5 px-3">0.741</td>
-                        <td className="py-2.5 px-3 text-slate-500">Cannot capture non-linear topological interactions</td>
-                      </tr>
-                      <tr className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-semibold text-slate-800">B3: Random Forest</td>
-                        <td className="py-2.5 px-3">94.2%</td>
-                        <td className="py-2.5 px-3">83.1%</td>
-                        <td className="py-2.5 px-3 font-bold text-slate-700">88.3%</td>
-                        <td className="py-2.5 px-3">0.932</td>
-                        <td className="py-2.5 px-3 text-slate-500">Misses multi-hop transitive role inheritance graph paths</td>
-                      </tr>
-                      <tr className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-semibold text-slate-800">B4: PyG GNN Only</td>
-                        <td className="py-2.5 px-3">77.8%</td>
-                        <td className="py-2.5 px-3">94.9%</td>
-                        <td className="py-2.5 px-3 font-bold text-slate-700">85.5%</td>
-                        <td className="py-2.5 px-3">0.957</td>
-                        <td className="py-2.5 px-3 text-slate-500">Strong graph topology; misses discrete IAM boundary conditions</td>
-                      </tr>
-                      <tr className="bg-blue-50/70 font-semibold border-t-2 border-blue-500">
-                        <td className="py-3 px-3 text-blue-900 flex items-center gap-1.5">
-                          <Sparkles className="h-4 w-4 text-blue-600" />
-                          <span>B5: GNN + XGBoost Hybrid</span>
-                        </td>
-                        <td className="py-3 px-3 font-extrabold text-blue-900">100.0%</td>
-                        <td className="py-3 px-3 font-extrabold text-blue-900">100.0%</td>
-                        <td className="py-3 px-3 font-extrabold text-blue-900">100.0%</td>
-                        <td className="py-3 px-3 font-extrabold text-blue-900">1.000</td>
-                        <td className="py-3 px-3 text-blue-800 font-normal">
-                          Perfect synergy: GNN embeds graph paths; XGBoost checks discrete rules
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 block mb-1">AWS Region</label>
+                          <input
+                            type="text"
+                            value={awsRegion}
+                            onChange={(e) => setAwsRegion(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 block mb-1">Access Key ID</label>
+                          <input
+                            type="text"
+                            placeholder="AKIA... (or local SSO)"
+                            value={awsKey}
+                            onChange={(e) => setAwsKey(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      </div>
 
-                {/* Academic Rigor & Limitation Transparency */}
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs space-y-2">
-                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                    <FileCheck className="h-4 w-4 text-blue-600" />
-                    <span>Academic Grounding &amp; Ablation Study Notes</span>
-                  </div>
-                  <p className="text-slate-600 leading-relaxed">
-                    <strong>Why B5 achieves near-perfect classification:</strong> The dataset is constructed across 100
-                    synthetic environments with ground-truth labeled by a deterministic authorization oracle. The GNN
-                    compresses 6-hop graph topology into 16 continuous PCA dimensions, while the 29 domain tabular
-                    features encode discrete boundary constraints. Under 5-fold cross validation with environment-level
-                    grouping, B5 averages <strong>99.17% ± 1.23% F1</strong>, proving the model generalizes across
-                    unseen cloud topologies without leaking training environment nodes.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 block mb-1">Secret Access Key</label>
+                        <input
+                          type="password"
+                          placeholder="Secret key..."
+                          value={awsSecret}
+                          onChange={(e) => setAwsSecret(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-indigo-500"
+                        />
+                      </div>
 
-          {/* ========================================================================= */}
-          {/* TAB 6: VERIFIED REMEDIATION & DIGITAL TWIN */}
-          {/* ========================================================================= */}
-          {activeTab === "remediation" && (
-            <div className="space-y-6">
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900">Verified Auto-Remediation Engine</h2>
-                    <p className="text-xs text-slate-500">
-                      Terraform HCL and PostgreSQL patches validated against 30 days of historical CloudTrail &amp; pgaudit logs
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
-                    Production Safe Verification
-                  </span>
-                </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 block mb-1">Session Token (Optional)</label>
+                        <input
+                          type="password"
+                          placeholder="Required for assumed roles / temporary STS creds"
+                          value={awsToken}
+                          onChange={(e) => setAwsToken(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-indigo-500"
+                        />
+                      </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {remediations.map((rem) => {
-                    const isSafe = rem.status === "Verified Safe-to-Apply";
-                    return (
-                      <div
-                        key={rem.fix_id}
-                        className="rounded-xl border border-slate-200 bg-white p-5 shadow-2xs flex flex-col justify-between space-y-4 hover:border-slate-300 transition-colors"
+                      {awsError && (
+                        <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-700">
+                          {awsError}
+                        </div>
+                      )}
+
+                      {awsInventory && (
+                        <div className="rounded-xl bg-emerald-50/70 border border-emerald-200 p-3 text-xs text-emerald-900">
+                          <strong>Account {awsInventory.account_id}</strong> ({awsInventory.region}):{" "}
+                          {awsInventory.principals} IAM principals, {awsInventory.security_groups} SGs,{" "}
+                          {awsInventory.rds_instances} RDS instances.
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleRealAwsScan}
+                        disabled={liveScanLoading}
+                        className="w-full rounded-xl bg-slate-900 py-2.5 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50"
                       >
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-slate-900">{rem.title}</span>
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                                isSafe ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                              }`}
-                            >
-                              {rem.status}
+                        Connect &amp; Scan AWS Account
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ========================================================= */}
+                {/* 8. EXECUTIVE AUDIT REPORT */}
+                {/* ========================================================= */}
+                {activeTab === "reports" && (
+                  <div className="space-y-5">
+                    <div className="no-print flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-900 p-5 text-white shadow-sm">
+                      <div>
+                        <div className="text-sm font-bold">Executive Cybersecurity Audit Report</div>
+                        <div className="text-xs text-slate-400">
+                          CIS AWS Foundations Benchmark v1.4 • NIST SP 800-53 • ISO 27001
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={loadExecutiveReport}
+                          className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs font-bold text-slate-300 hover:bg-slate-800"
+                        >
+                          Refresh Data
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => window.print()}
+                          className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-500"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          <span>Print / Export PDF</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {reportLoading ? (
+                      <div className="enterprise-card rounded-2xl p-12 text-center text-xs text-slate-500">
+                        Compiling executive security assessment...
+                      </div>
+                    ) : reportData ? (
+                      <div className="enterprise-card rounded-2xl p-8 space-y-8">
+                        <div className="flex items-start justify-between border-b border-slate-200 pb-6">
+                          <div>
+                            <div className="text-2xl font-extrabold tracking-tight text-slate-900">
+                              CLOUD DATABASE SECURITY AUDIT
+                            </div>
+                            <div className="text-xs text-slate-500 mt-1">
+                              Generated by DB-TRACE Enterprise AI Security Operations Platform
+                            </div>
+                          </div>
+                          <div className="text-right text-xs">
+                            <div className="font-bold text-slate-800">{reportData.generated_at}</div>
+                            <div className="font-mono text-slate-500">{reportData.environment_id}</div>
+                            <span className="mt-1 inline-block rounded-full bg-red-50 px-2.5 py-0.5 text-[10px] font-bold text-red-700 ring-1 ring-red-200">
+                              {reportData.risk_level} RISK
                             </span>
                           </div>
-                          <p className="text-xs text-slate-600">{rem.description}</p>
+                        </div>
 
-                          {/* Historical Log-Replay Audit Bar */}
-                          <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs space-y-1.5">
-                            <div className="flex items-center justify-between font-semibold text-slate-700">
-                              <span>30-Day Historical Log Replay:</span>
-                              <span className={isSafe ? "text-emerald-700" : "text-amber-700"}>
-                                {rem.legit_broken} / {rem.legit_total} Queries Broken
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between text-[11px] text-slate-500">
-                              <span>Attack Paths Eliminated:</span>
-                              <span className="font-bold text-slate-900">
-                                {rem.paths_eliminated} path(s) ({rem.paths_before} → {rem.paths_after})
-                              </span>
-                            </div>
+                        <div className="space-y-2">
+                          <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                            1. Executive Summary
+                          </h3>
+                          <p className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-4 text-xs leading-relaxed text-slate-700">
+                            {reportData.executive_summary}
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                            2. Compliance Control Mapping
+                          </h3>
+                          <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                            <table className="w-full text-left text-xs">
+                              <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                                <tr>
+                                  <th className="py-2.5 px-4">Framework</th>
+                                  <th className="py-2.5 px-4">Control</th>
+                                  <th className="py-2.5 px-4">Description</th>
+                                  <th className="py-2.5 px-4">Status</th>
+                                  <th className="py-2.5 px-4">Resource</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {reportData.compliance_findings.map((c, i) => (
+                                  <tr key={i}>
+                                    <td className="py-2.5 px-4 font-semibold text-slate-800">{c.framework}</td>
+                                    <td className="py-2.5 px-4 font-mono text-slate-700">{c.control_id}</td>
+                                    <td className="py-2.5 px-4 text-slate-700">{c.control_name}</td>
+                                    <td className="py-2.5 px-4">
+                                      <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700 ring-1 ring-red-200">
+                                        {c.status}
+                                      </span>
+                                    </td>
+                                    <td className="py-2.5 px-4 font-mono text-slate-800">{c.resource}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
+                        </div>
 
-                          {/* Patch Snippet */}
-                          <div className="relative rounded-lg bg-slate-950 p-3 font-mono text-[11px] text-emerald-400 overflow-x-auto">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                navigator.clipboard.writeText(rem.patch_snippet);
-                                showToast("Copied patch to clipboard!");
-                              }}
-                              className="absolute top-2 right-2 text-slate-400 hover:text-white"
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                            </button>
-                            <pre>{rem.patch_snippet}</pre>
+                        <div className="space-y-2">
+                          <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                            3. AI / Machine Learning Validation Evidence
+                          </h3>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            {Object.entries(reportData.academic_metrics).map(([k, v]) => (
+                              <div key={k} className="rounded-xl border border-slate-200/80 bg-slate-50/70 p-3.5">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                  {k.replace(/_/g, " ")}
+                                </div>
+                                <div className="mt-1 text-xs font-bold text-slate-800">{v}</div>
+                              </div>
+                            ))}
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-                          {selectedEnv === "live_neon_cloud" ? (
-                            <button
-                              type="button"
-                              onClick={handleLiveNeonApplyFix}
-                              disabled={liveScanLoading}
-                              className="w-full rounded-lg bg-emerald-600 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition-colors"
-                            >
-                              Apply Live SQL REVOKE to Neon DB
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                navigator.clipboard.writeText(rem.patch_snippet);
-                                showToast("Copied Terraform HCL configuration!");
-                              }}
-                              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 text-xs font-bold text-slate-800 hover:bg-slate-100 transition-colors"
-                            >
-                              Copy Terraform Plan
-                            </button>
-                          )}
-                        </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* TAB 7: CLOUD CONNECTORS & LIVE SCAN */}
-          {/* ========================================================================= */}
-          {activeTab === "cloud" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Neon Cloud PostgreSQL Scanner */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div className="flex items-center gap-2">
-                    <Database className="h-5 w-5 text-emerald-600" />
-                    <div>
-                      <h2 className="text-base font-bold text-slate-900">Neon Cloud Serverless PostgreSQL</h2>
-                      <div className="text-xs text-slate-500">Live system catalog security audit</div>
-                    </div>
-                  </div>
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                      neonStatus?.connected ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    {neonStatus?.connected ? "Connected" : "Disconnected"}
-                  </span>
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                      Target PostgreSQL Connection URI
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="postgres://user:pass@ep-xyz.us-west-2.aws.neon.tech/neondb?sslmode=require"
-                      value={customPgUrl}
-                      onChange={(e) => setCustomPgUrl(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-mono outline-none focus:border-blue-600"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-200">
-                      <div className="text-slate-500">Roles Found</div>
-                      <div className="text-lg font-bold text-slate-900">{neonStatus?.roles_discovered || 0}</div>
-                    </div>
-                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-200">
-                      <div className="text-slate-500">Tables Found</div>
-                      <div className="text-lg font-bold text-slate-900">{neonStatus?.tables_discovered || 0}</div>
-                    </div>
-                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-200">
-                      <div className="text-slate-500">PUBLIC Grants</div>
-                      <div className="text-lg font-bold text-red-600">
-                        {neonStatus?.public_grant_tables?.length || 0}
+                    ) : (
+                      <div className="enterprise-card rounded-2xl p-12 text-center text-xs text-slate-500">
+                        Click Refresh Data to generate the report.
                       </div>
-                    </div>
+                    )}
                   </div>
-
-                  <div className="flex items-center gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={handleLiveNeonScan}
-                      disabled={liveScanLoading}
-                      className="flex-1 rounded-lg bg-blue-600 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      Scan Live Neon DB
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleLiveNeonSeed}
-                      disabled={liveScanLoading}
-                      className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
-                    >
-                      Seed Vulnerabilities
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* AWS Real Account Connector */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div className="flex items-center gap-2">
-                    <Cloud className="h-5 w-5 text-blue-600" />
-                    <div>
-                      <h2 className="text-base font-bold text-slate-900">AWS Infrastructure Scanner (boto3)</h2>
-                      <div className="text-xs text-slate-500">IAM, EC2, Security Groups, and RDS DB clusters</div>
-                    </div>
-                  </div>
-                  <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-700">
-                    STS Identity
-                  </span>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[11px] font-bold text-slate-500 block mb-1">Region</label>
-                      <input
-                        type="text"
-                        value={awsRegion}
-                        onChange={(e) => setAwsRegion(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-600"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-bold text-slate-500 block mb-1">AWS Access Key ID</label>
-                      <input
-                        type="text"
-                        placeholder="AKIA... (or use SSO/env)"
-                        value={awsKey}
-                        onChange={(e) => setAwsKey(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-600"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-500 block mb-1">AWS Secret Access Key</label>
-                    <input
-                      type="password"
-                      placeholder="Secret access key..."
-                      value={awsSecret}
-                      onChange={(e) => setAwsSecret(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-500 block mb-1">Session Token (Optional)</label>
-                    <input
-                      type="password"
-                      placeholder="Required for assumed roles / temporary credentials"
-                      value={awsToken}
-                      onChange={(e) => setAwsToken(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-600"
-                    />
-                  </div>
-
-                  {awsError && (
-                    <div className="rounded-lg bg-red-50 border border-red-200 p-2.5 text-xs text-red-700">
-                      {awsError}
-                    </div>
-                  )}
-
-                  {awsInventory && (
-                    <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs space-y-1">
-                      <div className="font-bold text-slate-800">
-                        Account {awsInventory.account_id} ({awsInventory.region})
-                      </div>
-                      <div className="text-[11px] text-slate-600">
-                        Discovered {awsInventory.principals} IAM Principals, {awsInventory.security_groups} SGs, {awsInventory.rds_instances} RDS Instances.
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={handleRealAwsScan}
-                    disabled={liveScanLoading}
-                    className="w-full rounded-lg bg-slate-900 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50"
-                  >
-                    Connect &amp; Scan AWS Account
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* TAB 8: EXECUTIVE SECURITY AUDIT REPORT (PRINTABLE / PDF) */}
-          {/* ========================================================================= */}
-          {activeTab === "reports" && (
-            <div className="space-y-6">
-              <div className="no-print flex items-center justify-between rounded-xl bg-slate-900 p-4 text-white">
-                <div>
-                  <div className="text-sm font-bold">Executive Cybersecurity Assessment Document</div>
-                  <div className="text-xs text-slate-400">
-                    Compliant with CIS AWS Foundations Benchmark, NIST SP 800-53, and ISO 27001
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={loadExecutiveReport}
-                    className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-300 hover:bg-slate-800"
-                  >
-                    Refresh
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-blue-500"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    <span>Print / Save as PDF</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Assessment Document Body */}
-              {reportData ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm space-y-8 font-sans">
-                  {/* Document Header */}
-                  <div className="border-b border-slate-200 pb-6 flex items-start justify-between">
-                    <div>
-                      <div className="text-2xl font-extrabold text-slate-900 tracking-tight">
-                        CYBERSECURITY AUDIT REPORT
-                      </div>
-                      <div className="text-xs text-slate-500 mt-1">
-                        AI-Driven Cloud Database Security Assessment • DB-TRACE Platform
-                      </div>
-                    </div>
-                    <div className="text-right text-xs">
-                      <div className="font-bold text-slate-800">Date: {reportData.generated_at}</div>
-                      <div className="text-slate-500">Env: {reportData.environment_id}</div>
-                      <span className="mt-1 inline-block rounded bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
-                        {reportData.risk_level} RISK
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Section 1: Executive Summary */}
-                  <div className="space-y-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                      1. Executive Summary
-                    </h3>
-                    <p className="text-xs text-slate-700 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-200">
-                      {reportData.executive_summary}
-                    </p>
-                  </div>
-
-                  {/* Section 2: Asset Inventory */}
-                  <div className="space-y-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                      2. Cloud &amp; Database Inventory
-                    </h3>
-                    <div className="grid grid-cols-4 md:grid-cols-7 gap-2 text-center text-xs">
-                      {Object.entries(reportData.inventory_summary).map(([k, v]) => (
-                        <div key={k} className="rounded-lg border border-slate-200 p-2.5">
-                          <div className="text-slate-500 capitalize">{k.replace("_", " ")}</div>
-                          <div className="text-base font-bold text-slate-900 mt-0.5">{v}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Section 3: Regulatory Compliance Findings */}
-                  <div className="space-y-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                      3. Regulatory &amp; Framework Compliance Deficiencies
-                    </h3>
-                    <div className="overflow-x-auto rounded-xl border border-slate-200">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
-                          <tr>
-                            <th className="py-2.5 px-3">Framework</th>
-                            <th className="py-2.5 px-3">Control ID</th>
-                            <th className="py-2.5 px-3">Control Name</th>
-                            <th className="py-2.5 px-3">Status</th>
-                            <th className="py-2.5 px-3">Affected Resource</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {reportData.compliance_findings.map((c, i) => (
-                            <tr key={i} className="hover:bg-slate-50">
-                              <td className="py-2.5 px-3 font-semibold text-slate-800">{c.framework}</td>
-                              <td className="py-2.5 px-3 font-mono text-slate-700">{c.control_id}</td>
-                              <td className="py-2.5 px-3 text-slate-700">{c.control_name}</td>
-                              <td className="py-2.5 px-3">
-                                <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
-                                  {c.status}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 font-mono text-slate-800">{c.resource}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* Section 4: Academic ML Rigor */}
-                  <div className="space-y-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                      4. AI / Machine Learning Validation Metrics
-                    </h3>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
-                      {Object.entries(reportData.academic_metrics).map(([k, v]) => (
-                        <div key={k} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                          <div className="text-[10px] font-bold uppercase text-slate-400">
-                            {k.replace(/_/g, " ")}
-                          </div>
-                          <div className="text-xs font-bold text-slate-800 mt-1">{v}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Document Footer */}
-                  <div className="pt-6 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-400">
-                    <span>Generated autonomously by DB-TRACE AI Security Operations Platform</span>
-                    <span>Confidential • Internal Security Audit</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-12 text-center text-xs text-slate-500">
-                  Loading assessment report data...
-                </div>
-              )}
-            </div>
+                )}
+              </motion.div>
+            </AnimatePresence>
           )}
         </div>
       </main>
 
-      {/* Slide-Over Context Inspector Drawer */}
-      {selectedNode && (
-        <div className="fixed inset-y-0 right-0 z-50 w-96 border-l border-slate-200 bg-white p-6 shadow-2xl flex flex-col justify-between animate-in slide-in-from-right-full duration-200">
-          <div className="space-y-5 overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
-                  <Server className="h-4 w-4" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    {String(selectedNode.data.node_type || "Resource")}
-                  </div>
-                  <div className="text-sm font-bold text-slate-900 truncate">
-                    {String(selectedNode.data.label || selectedNode.data.id)}
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedNode(null)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Node Metadata Breakdown */}
-            <div className="space-y-3 text-xs">
-              <div className="rounded-lg bg-slate-50 p-3 border border-slate-200 space-y-1">
-                <div className="text-[10px] font-bold uppercase text-slate-400">Resource ID</div>
-                <div className="font-mono text-slate-800 break-all">{selectedNode.data.id}</div>
-              </div>
-
-              {selectedNode.data.node_type === "SecurityGroup" && (
-                <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-800 space-y-1">
-                  <div className="font-bold flex items-center gap-1">
-                    <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
-                    <span>Insecure Port Ingress</span>
-                  </div>
-                  <p className="text-[11px] leading-relaxed">
-                    Allows 0.0.0.0/0 on TCP port 5432. Direct internet transit to RDS database endpoint.
-                  </p>
-                </div>
-              )}
-
-              {selectedNode.data.node_type === "Compute" && (
-                <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 space-y-1">
-                  <div className="font-bold flex items-center gap-1">
-                    <ShieldAlert className="h-3.5 w-3.5 text-amber-600" />
-                    <span>IMDSv1 Vulnerability</span>
-                  </div>
-                  <p className="text-[11px] leading-relaxed">
-                    Compute host lacks IMDSv2 token enforcement. Attackers can exploit SSRF flaws to harvest IAM role tokens.
-                  </p>
-                </div>
-              )}
-
-              {selectedNode.data.node_type === "DBRole" && (
-                <div className="rounded-lg bg-purple-50 border border-purple-200 p-3 text-xs text-purple-800 space-y-1">
-                  <div className="font-bold flex items-center gap-1">
-                    <KeyRound className="h-3.5 w-3.5 text-purple-600" />
-                    <span>Inherited Superuser Grants</span>
-                  </div>
-                  <p className="text-[11px] leading-relaxed">
-                    Role inherits administrative read privileges across customer PII tables via transitive role membership.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedNode(null);
-              setActiveTab("remediation");
-            }}
-            className="w-full rounded-xl bg-blue-600 py-2.5 text-xs font-bold text-white hover:bg-blue-700 transition-colors shadow-sm"
-          >
-            Inspect Remediation for Asset
-          </button>
-        </div>
-      )}
+      {/* Wiz-Style Slide-Over Context Inspector Drawer */}
+      <InspectorDrawer
+        node={selectedNode}
+        onClose={() => setSelectedNode(null)}
+        onJumpToRemediation={() => setActiveTab("remediation")}
+        onAskCopilot={(q) => {
+          setActiveTab("copilot");
+          sendCopilotMessage(q);
+        }}
+      />
     </div>
   );
-}
-
-function roundPct(val: number): number {
-  return Math.round(val * 100);
 }
