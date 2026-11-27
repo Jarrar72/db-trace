@@ -24,6 +24,14 @@ def test_remediation_safe_vs_unsafe_verification() -> None:
     ranked = recommend_remediations(env, logs)
     assert ranked[0].legit_broken == 0
 
+    # Different scenario (lambda_privesc) must surface scope_iam_privesc, not enable_imdsv2
+    lam_env = build_scenario("env_lam", "lambda_privesc", seed=5)
+    lam_logs = generate_env_logs(lam_env, n_days=10, seed=5)
+    lam_recs = recommend_remediations(lam_env, lam_logs)
+    lam_ids = {r.fix_id for r in lam_recs}
+    assert "scope_iam_privesc" in lam_ids
+    assert "enable_imdsv2" not in lam_ids
+
 
 def test_api_demo_endpoints() -> None:
     client = TestClient(app)

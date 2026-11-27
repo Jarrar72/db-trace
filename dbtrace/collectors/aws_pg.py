@@ -214,12 +214,16 @@ def collect_aws_environment(
         warnings.append(f"rds:DescribeDBInstances blocked by SCP: {exc.response['Error']['Code']}")
 
     computes: list[ComputeResource] = []
+    role_by_name = {p.name: p.id for p in principals if p.kind == "role"}
     try:
         for res in ec2.describe_instances().get("Reservations", []):
             for inst in res.get("Instances", []):
                 iid = inst["InstanceId"]
                 name_tag = next((t["Value"] for t in inst.get("Tags", []) if t["Key"] == "Name"), iid)
                 imdsv2 = inst.get("MetadataOptions", {}).get("HttpTokens", "optional") == "required"
+                prof_arn = inst.get("IamInstanceProfile", {}).get("Arn", "")
+                prof_name = prof_arn.split("/")[-1] if prof_arn else ""
+                matched_role_id = role_by_name.get(prof_name)
                 computes.append(
                     ComputeResource(
                         id=iid,
@@ -227,6 +231,7 @@ def collect_aws_environment(
                         name=name_tag,
                         subnet_id=inst.get("SubnetId", "subnet-0"),
                         security_group_ids=[g["GroupId"] for g in inst.get("SecurityGroups", [])],
+                        iam_role_id=matched_role_id,
                         imdsv2_required=imdsv2,
                         has_public_ip=bool(inst.get("PublicIpAddress")),
                     )

@@ -1,4 +1,4 @@
-"""Candidate remediation templates, Terraform/SQL patch generation, and log-replay verification."""
+"""Candidate remediation templates, dynamic Terraform/SQL patch generation, and log-replay verification."""
 
 from __future__ import annotations
 
@@ -30,23 +30,44 @@ class RemediationResult(BaseModel):
 
 def _fix_enable_imdsv2(env: CloudEnvironment) -> tuple[CloudEnvironment, str]:
     fixed = copy.deepcopy(env)
+    affected = [c.name for c in fixed.computes if c.kind == "ec2" and not c.imdsv2_required]
     for c in fixed.computes:
         if c.kind == "ec2":
             c.imdsv2_required = True
-            c.has_app_vuln = False  # IMDSv2 blocks unauthenticated metadata credential theft
-    hcl = 'resource "aws_instance" "app" {\n  metadata_options {\n    http_tokens = "required" # Enforce IMDSv2\n  }\n}'
+            c.has_app_vuln = False
+    target_res = affected[0] if affected else "app_ec2"
+    hcl = (
+        f'resource "aws_instance" "{target_res}" {{\n'
+        f'  # Affected EC2(s): {", ".join(affected) if affected else "none"}\n'
+        '  metadata_options {\n'
+        '    http_tokens = "required" # Enforce IMDSv2\n'
+        "  }\n"
+        "}"
+    )
     return fixed, hcl
 
 
 def _fix_restrict_public_rds(env: CloudEnvironment) -> tuple[CloudEnvironment, str]:
     fixed = copy.deepcopy(env)
+    rds_names = [r.name for r in fixed.rds_instances if r.publicly_accessible]
+    sg_names = [
+        sg.name
+        for sg in fixed.security_groups
+        if any(r.from_port <= 5432 <= r.to_port and r.cidr == "0.0.0.0/0" for r in sg.ingress_rules)
+    ]
     for rds in fixed.rds_instances:
         rds.publicly_accessible = False
     for sg in fixed.security_groups:
         for r in sg.ingress_rules:
             if r.from_port <= 5432 <= r.to_port and r.cidr == "0.0.0.0/0":
                 r.cidr = "10.0.0.0/16"
-    hcl = 'resource "aws_db_instance" "main" {\n  publicly_accessible = false\n}\n# SG ingress restricted to VPC CIDR 10.0.0.0/16'
+    target_rds = rds_names[0] if rds_names else (fixed.rds_instances[0].name if fixed.rds_instances else "main_db")
+    hcl = (
+        f'resource "aws_db_instance" "{target_rds}" {{\n'
+        "  publicly_accessible = false\n"
+        "}\n"
+        f'# Restricted SG(s): {", ".join(sg_names) if sg_names else "rds-sg"} (0.0.0.0/0 -> 10.0.0.0/16 on port 5432)'
+    )
     return fixed, hcl
 
 
@@ -62,35 +83,50 @@ def _fix_scope_iam_privesc(env: CloudEnvironment) -> tuple[CloudEnvironment, str
         "iam:UpdateAssumeRolePolicy",
         "rds:ModifyDBSnapshotAttribute",
     }
+    touched: list[str] = []
     for pol in fixed.policies:
         for stmt in pol.statements:
             if stmt.effect == "Allow":
+                before = len(stmt.actions)
                 stmt.actions = [a for a in stmt.actions if a not in privesc_acts]
-    hcl = '# Removed privilege-escalation & snapshot-sharing actions from IAM policy statements'
+                if len(stmt.actions) < before:
+                    touched.append(pol.name)
+    hcl = (
+        f'# Scoped down IAM policy(s): {", ".join(sorted(set(touched))) if touched else "none"}\n'
+        "# Removed privilege-escalation & snapshot-sharing actions from non-admin statements."
+    )
     return fixed, hcl
 
 
 def _fix_revoke_pii_grant(env: CloudEnvironment) -> tuple[CloudEnvironment, str]:
     fixed = copy.deepcopy(env)
+    pii_tables = [f"{t.schema_name}.{t.table_name}" for t in fixed.db_tables if t.sensitivity.value in ("high", "pii") and t.grants]
     for r in fixed.db_roles:
         if not r.is_rds_superuser:
             r.is_superuser = False
     for t in fixed.db_tables:
         if t.sensitivity.value in ("high", "pii"):
             t.grants.clear()
-    sql = "REVOKE ALL PRIVILEGES ON TABLE public.customers_pii FROM ro_group;\nALTER ROLE app_service NOSUPERUSER;"
-    return fixed, sql
+    stmts = [f"REVOKE ALL PRIVILEGES ON TABLE {tbl} FROM PUBLIC, ro_group;" for tbl in pii_tables]
+    if not stmts:
+        stmts = ["-- No excess PII table grants found in this environment"]
+    stmts.append("ALTER ROLE app_service NOSUPERUSER;")
+    return fixed, "\n".join(stmts)
 
 
 def _fix_revoke_all_db_access_unsafe(env: CloudEnvironment) -> tuple[CloudEnvironment, str]:
     """Overly aggressive fix (blocks legitimate app traffic too) — demonstrates unsafe detection."""
     fixed = copy.deepcopy(env)
+    tbl_names = [f"{t.schema_name}.{t.table_name}" for t in fixed.db_tables]
     for t in fixed.db_tables:
         t.grants.clear()
     for r in fixed.db_roles:
         if not r.is_rds_superuser:
             r.can_login = False
-    sql = "REVOKE ALL ON ALL TABLES IN SCHEMA public FROM app_service; -- WARNING: breaks app traffic"
+    sql = (
+        f"-- WARNING: Aggressive revoke across {', '.join(tbl_names[:3])}\n"
+        "REVOKE ALL ON ALL TABLES IN SCHEMA public FROM app_service; -- Breaks production queries"
+    )
     return fixed, sql
 
 
@@ -152,7 +188,6 @@ def _replay_logs(env: CloudEnvironment, logs: list[AccessLogEvent]) -> tuple[int
             if not (rds and db_role and table):
                 broken += 1
                 continue
-            # Check network SG still allows compute SG
             net_ok = True
             if ev.source_sg_id:
                 net_ok = any(
@@ -215,7 +250,10 @@ def verify_remediation(
 def recommend_remediations(
     env: CloudEnvironment, logs: list[AccessLogEvent]
 ) -> list[RemediationResult]:
-    """Evaluate all candidate fixes and rank safest + highest-impact first."""
-    results = [verify_remediation(env, logs, fix_id) for fix_id, _, _, _ in FIX_LIBRARY]
-    results.sort(key=lambda r: (r.legit_broken > 0, -r.paths_eliminated, r.false_breakage_rate))
-    return results
+    """Evaluate candidate fixes, keep only relevant/impactful ones for this env, and rank safest first."""
+    all_results = [verify_remediation(env, logs, fix_id) for fix_id, _, _, _ in FIX_LIBRARY]
+    relevant = [r for r in all_results if r.paths_eliminated > 0 or r.legit_broken > 0]
+    if not relevant:
+        relevant = all_results[:2]
+    relevant.sort(key=lambda r: (r.legit_broken > 0, -r.paths_eliminated, r.false_breakage_rate))
+    return relevant
