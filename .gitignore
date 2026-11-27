@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Env & secrets
+.env
+.env.local
+*.pem
+*.key
+*-credentials.txt
+
+# Data & artifacts
+data/
+mlruns/
+*.db
+*.sqlite
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/out/
+
+# OS
+.DS_Store
+Thumbs.db
