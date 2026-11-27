@@ -39,6 +39,12 @@ FEATURE_COLUMNS = [
     "via_snapshot",
     "log_legit_connect_count",
     "log_legit_select_count",
+    "provider_is_azure",
+    "provider_is_gcp",
+    "compute_is_k8s",
+    "principal_has_long_lived_key",
+    "principal_has_broad_oidc",
+    "audit_logging_disabled",
 ]
 
 
@@ -136,6 +142,12 @@ def extract_path_features(
             "via_snapshot": int(p.via_snapshot),
             "log_legit_connect_count": ct_counts.get(target_iam.id, 0),
             "log_legit_select_count": pg_counts.get((db_role.id, table.id), 0) if db_role else 0,
+            "provider_is_azure": int(env.provider == "azure"),
+            "provider_is_gcp": int(env.provider == "gcp"),
+            "compute_is_k8s": int(comp is not None and comp.kind == "k8s_pod"),
+            "principal_has_long_lived_key": int(entry.has_long_lived_key),
+            "principal_has_broad_oidc": int(entry.has_broad_oidc_trust or target_iam.has_broad_oidc_trust),
+            "audit_logging_disabled": int(not env.audit_logging_enabled),
         })
 
     return pd.DataFrame(rows)

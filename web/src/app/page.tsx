@@ -259,6 +259,15 @@ export default function EnterpriseSecurityConsole() {
     warnings?: string[];
   } | null>(null);
   const [awsError, setAwsError] = useState<string>("");
+  const [azSubId, setAzSubId] = useState<string>("");
+  const [azTenantId, setAzTenantId] = useState<string>("");
+  const [azClientId, setAzClientId] = useState<string>("");
+  const [azClientSecret, setAzClientSecret] = useState<string>("");
+  const [azToken, setAzToken] = useState<string>("");
+  const [azError, setAzError] = useState<string>("");
+  const [gcpProjectId, setGcpProjectId] = useState<string>("");
+  const [gcpToken, setGcpToken] = useState<string>("");
+  const [gcpError, setGcpError] = useState<string>("");
   const [liveScanLoading, setLiveScanLoading] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState<boolean>(false);
@@ -490,6 +499,71 @@ export default function EnterpriseSecurityConsole() {
         setActiveTab("explorer");
       })
       .catch((err) => setAwsError(String(err)))
+      .finally(() => setLiveScanLoading(false));
+  };
+
+  const handleRealAzureScan = () => {
+    setLiveScanLoading(true);
+    setAzError("");
+    fetch(`${API_BASE}/cloud/azure/scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription_id: azSubId,
+        tenant_id: azTenantId || undefined,
+        client_id: azClientId || undefined,
+        client_secret: azClientSecret || undefined,
+        access_token: azToken || undefined,
+      }),
+    })
+      .then(async (r) => {
+        if (!r.ok) {
+          const err = await r.json();
+          throw new Error(err.detail || "Azure scan failed");
+        }
+        return r.json();
+      })
+      .then((data) => {
+        setNodes(data.graph?.nodes || []);
+        setEdges(data.graph?.edges || []);
+        setPaths(data.paths || []);
+        setExplanations(data.explanations || {});
+        setRemediations(data.remediations || []);
+        showToast(`Scanned Azure Subscription ${data.inventory.subscription_id} (${data.inventory.principals} principals)!`);
+        setActiveTab("explorer");
+      })
+      .catch((err) => setAzError(String(err)))
+      .finally(() => setLiveScanLoading(false));
+  };
+
+  const handleRealGcpScan = () => {
+    setLiveScanLoading(true);
+    setGcpError("");
+    fetch(`${API_BASE}/cloud/gcp/scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: gcpProjectId,
+        access_token: gcpToken,
+      }),
+    })
+      .then(async (r) => {
+        if (!r.ok) {
+          const err = await r.json();
+          throw new Error(err.detail || "GCP scan failed");
+        }
+        return r.json();
+      })
+      .then((data) => {
+        setNodes(data.graph?.nodes || []);
+        setEdges(data.graph?.edges || []);
+        setPaths(data.paths || []);
+        setExplanations(data.explanations || {});
+        setRemediations(data.remediations || []);
+        showToast(`Scanned GCP Project ${data.inventory.project_id} (${data.inventory.principals} IAM members)!`);
+        setActiveTab("explorer");
+      })
+      .catch((err) => setGcpError(String(err)))
       .finally(() => setLiveScanLoading(false));
   };
 
@@ -1934,6 +2008,155 @@ export default function EnterpriseSecurityConsole() {
                         className="w-full rounded-xl bg-slate-900 py-2.5 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50"
                       >
                         Connect &amp; Scan AWS Account
+                      </button>
+                    </div>
+
+                    {/* Microsoft Azure Live Connector */}
+                    <div className="enterprise-card rounded-2xl p-6 space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-600 ring-1 ring-sky-200/80">
+                            <Cloud className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h2 className="text-sm font-bold text-slate-900">Microsoft Azure Scanner (ARM REST)</h2>
+                            <p className="text-xs text-slate-500">Entra ID RBAC, NSGs, VMs &amp; PostgreSQL Flexible Server</p>
+                          </div>
+                        </div>
+                        <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10.5px] font-bold text-sky-700 ring-1 ring-sky-200">
+                          Read-Only
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 block mb-1">Subscription ID *</label>
+                          <input
+                            type="text"
+                            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                            value={azSubId}
+                            onChange={(e) => setAzSubId(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-sky-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 block mb-1">Tenant ID (Service Principal)</label>
+                          <input
+                            type="text"
+                            placeholder="Optional if using Bearer Token"
+                            value={azTenantId}
+                            onChange={(e) => setAzTenantId(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-sky-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 block mb-1">Client ID</label>
+                          <input
+                            type="text"
+                            placeholder="App Registration Client ID"
+                            value={azClientId}
+                            onChange={(e) => setAzClientId(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-sky-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 block mb-1">Client Secret</label>
+                          <input
+                            type="password"
+                            placeholder="Service Principal Secret"
+                            value={azClientSecret}
+                            onChange={(e) => setAzClientSecret(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-sky-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 block mb-1">
+                          Or Direct Bearer Token (`az account get-access-token --query accessToken -o tsv`)
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="eyJ0eXAiOiJKV1Qi..."
+                          value={azToken}
+                          onChange={(e) => setAzToken(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 font-mono text-xs outline-none focus:border-sky-500"
+                        />
+                      </div>
+
+                      {azError && (
+                        <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-700">
+                          {azError}
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleRealAzureScan}
+                        disabled={liveScanLoading || !azSubId.trim()}
+                        className="w-full rounded-xl bg-sky-600 py-2.5 text-xs font-bold text-white hover:bg-sky-700 disabled:opacity-50"
+                      >
+                        Connect &amp; Scan Azure Subscription
+                      </button>
+                    </div>
+
+                    {/* Google Cloud Platform (GCP) Live Connector */}
+                    <div className="enterprise-card rounded-2xl p-6 space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 ring-1 ring-amber-200/80">
+                            <Cloud className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h2 className="text-sm font-bold text-slate-900">Google Cloud Scanner (GCP REST)</h2>
+                            <p className="text-xs text-slate-500">IAM Policy, VPC Firewalls &amp; Cloud SQL PostgreSQL</p>
+                          </div>
+                        </div>
+                        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10.5px] font-bold text-amber-700 ring-1 ring-amber-200">
+                          Read-Only
+                        </span>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 block mb-1">GCP Project ID *</label>
+                        <input
+                          type="text"
+                          placeholder="my-prod-gcp-project-123"
+                          value={gcpProjectId}
+                          onChange={(e) => setGcpProjectId(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-amber-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 block mb-1">
+                          OAuth2 Access Token * (`gcloud auth print-access-token`)
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="ya29.a0AfH6SM..."
+                          value={gcpToken}
+                          onChange={(e) => setGcpToken(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 font-mono text-xs outline-none focus:border-amber-500"
+                        />
+                      </div>
+
+                      {gcpError && (
+                        <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-700">
+                          {gcpError}
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleRealGcpScan}
+                        disabled={liveScanLoading || !gcpProjectId.trim() || !gcpToken.trim()}
+                        className="w-full rounded-xl bg-amber-600 py-2.5 text-xs font-bold text-white hover:bg-amber-700 disabled:opacity-50"
+                      >
+                        Connect &amp; Scan GCP Project
                       </button>
                     </div>
                   </div>

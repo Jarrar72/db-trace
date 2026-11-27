@@ -30,20 +30,57 @@ class RemediationResult(BaseModel):
 
 def _fix_enable_imdsv2(env: CloudEnvironment) -> tuple[CloudEnvironment, str]:
     fixed = copy.deepcopy(env)
-    affected = [c.name for c in fixed.computes if c.kind == "ec2" and not c.imdsv2_required]
+    affected = [c.name for c in fixed.computes if not c.imdsv2_required or c.has_app_vuln]
+    has_k8s = any(c.kind == "k8s_pod" for c in fixed.computes)
     for c in fixed.computes:
-        if c.kind == "ec2":
-            c.imdsv2_required = True
-            c.has_app_vuln = False
-    target_res = affected[0] if affected else "app_ec2"
-    hcl = (
-        f'resource "aws_instance" "{target_res}" {{\n'
-        f'  # Affected EC2(s): {", ".join(affected) if affected else "none"}\n'
-        '  metadata_options {\n'
-        '    http_tokens = "required" # Enforce IMDSv2\n'
-        "  }\n"
-        "}"
-    )
+        c.imdsv2_required = True
+        c.has_app_vuln = False
+        c.leaked_db_role_id = None
+    target_res = affected[0] if affected else "app_compute"
+    if has_k8s:
+        hcl = (
+            f"# Kubernetes PodSecurity Remediation for: {', '.join(affected) if affected else target_res}\n"
+            "spec:\n"
+            "  automountServiceAccountToken: false\n"
+            "  securityContext:\n"
+            "    runAsNonRoot: true\n"
+            "  containers:\n"
+            f"    - name: {target_res}\n"
+            "      securityContext:\n"
+            "        privileged: false\n"
+            "        allowPrivilegeEscalation: false\n"
+            "        readOnlyRootFilesystem: true"
+        )
+    elif env.provider == "azure":
+        hcl = (
+            f'# Azure VM Hardening for: {", ".join(affected) if affected else target_res}\n'
+            f'resource "azurerm_linux_virtual_machine" "{target_res}" {{\n'
+            "  # Disable public IP & scope Managed Identity to least-privilege RBAC\n"
+            "  allow_extension_operations = false\n"
+            "}\n"
+            f"# CLI: az vm identity remove --name {target_res} --resource-group <rg>"
+        )
+    elif env.provider == "gcp":
+        hcl = (
+            f'# GCP Compute Engine Hardening for: {", ".join(affected) if affected else target_res}\n'
+            f'resource "google_compute_instance" "{target_res}" {{\n'
+            '  metadata = { enable-oslogin = "TRUE", block-project-ssh-keys = "TRUE" }\n'
+            "  service_account {\n"
+            '    email  = "least-privilege-app-sa@<project>.iam.gserviceaccount.com"\n'
+            '    scopes = ["https://www.googleapis.com/auth/cloud-platform"]\n'
+            "  }\n"
+            "}"
+        )
+    else:
+        hcl = (
+            f'resource "aws_instance" "{target_res}" {{\n'
+            f'  # Affected Compute(s): {", ".join(affected) if affected else "none"}\n'
+            "  metadata_options {\n"
+            '    http_tokens = "required" # Enforce IMDSv2 (blocks SSRF)\n'
+            "  }\n"
+            "}\n"
+            "# Also patch RCE (CVE-2025-55182 / React2Shell) & rotate leaked DB secrets via AWS Secrets Manager."
+        )
     return fixed, hcl
 
 
@@ -62,12 +99,36 @@ def _fix_restrict_public_rds(env: CloudEnvironment) -> tuple[CloudEnvironment, s
             if r.from_port <= 5432 <= r.to_port and r.cidr == "0.0.0.0/0":
                 r.cidr = "10.0.0.0/16"
     target_rds = rds_names[0] if rds_names else (fixed.rds_instances[0].name if fixed.rds_instances else "main_db")
-    hcl = (
-        f'resource "aws_db_instance" "{target_rds}" {{\n'
-        "  publicly_accessible = false\n"
-        "}\n"
-        f'# Restricted SG(s): {", ".join(sg_names) if sg_names else "rds-sg"} (0.0.0.0/0 -> 10.0.0.0/16 on port 5432)'
-    )
+    if env.provider == "azure":
+        hcl = (
+            f'resource "azurerm_postgresql_flexible_server" "{target_rds}" {{\n'
+            "  public_network_access_enabled = false\n"
+            "  delegated_subnet_id           = azurerm_subnet.private_db.id\n"
+            "}\n"
+            f"# CLI: az postgres flexible-server update --name {target_rds} --public-access None\n"
+            f'# Restricted NSG(s): {", ".join(sg_names) if sg_names else "azure-nsg"} (block 0.0.0.0/0 port 5432)'
+        )
+    elif env.provider == "gcp":
+        hcl = (
+            f'resource "google_sql_database_instance" "{target_rds}" {{\n'
+            "  settings {\n"
+            "    ip_configuration {\n"
+            "      ipv4_enabled    = false\n"
+            "      private_network = google_compute_network.private_vpc.id\n"
+            "      require_ssl     = true\n"
+            "    }\n"
+            "  }\n"
+            "}\n"
+            f"# CLI: gcloud sql instances patch {target_rds} --no-assign-ip --require-ssl"
+        )
+    else:
+        hcl = (
+            f'resource "aws_db_instance" "{target_rds}" {{\n'
+            "  publicly_accessible = false\n"
+            "  storage_encrypted   = true\n"
+            "}\n"
+            f'# Restricted SG(s): {", ".join(sg_names) if sg_names else "rds-sg"} (0.0.0.0/0 -> 10.0.0.0/16 on port 5432)'
+        )
     return fixed, hcl
 
 

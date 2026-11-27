@@ -14,6 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from dbtrace.collectors.aws_pg import collect_aws_environment
+from dbtrace.collectors.azure_pg import collect_azure_environment
+from dbtrace.collectors.gcp_pg import collect_gcp_environment
 from dbtrace.collectors.live_neon import (
     apply_live_neon_fix,
     scan_live_neon_environment,
@@ -73,8 +75,14 @@ HUMAN_FEATURE_LABELS: dict[str, str] = {
     "db_role_can_login": "Database role has LOGIN privilege",
     "db_role_is_superuser": "Database role has SUPERUSER / rds_superuser privilege",
     "db_role_inheritance_depth": "Transitive PostgreSQL role inheritance depth",
-    "has_compute": "Attack traverses a compute host (EC2/Lambda)",
+    "has_compute": "Attack traverses a compute host (EC2/Lambda/K8s/VM)",
     "compute_is_ec2": "Compute tier is an EC2 instance",
+    "provider_is_azure": "Target cloud environment is Microsoft Azure",
+    "provider_is_gcp": "Target cloud environment is Google Cloud Platform (GCP)",
+    "compute_is_k8s": "Attack pivots through a privileged Kubernetes Pod",
+    "principal_has_long_lived_key": "Principal uses unrotated long-lived static access key",
+    "principal_has_broad_oidc": "CI/CD OIDC trust policy lacks strict repo/branch conditions",
+    "audit_logging_disabled": "CloudTrail / Activity / Audit logging disabled or tampered",
 }
 
 
@@ -92,6 +100,19 @@ class AwsScanRequest(BaseModel):
     access_key_id: str | None = None
     secret_access_key: str | None = None
     session_token: str | None = None
+
+
+class AzureScanRequest(BaseModel):
+    subscription_id: str
+    tenant_id: str | None = None
+    client_id: str | None = None
+    client_secret: str | None = None
+    access_token: str | None = None
+
+
+class GcpScanRequest(BaseModel):
+    project_id: str
+    access_token: str
 
 
 class GenerateRequest(BaseModel):
@@ -488,6 +509,61 @@ def scan_real_aws(req: AwsScanRequest) -> dict:
             "sg_names": [sg.name for sg in env.security_groups[:10]],
             "rds_names": [r.name for r in env.rds_instances[:10]],
         },
+        "graph": graph,
+        "paths": scored,
+        "explanations": {e["path_id"]: e for e in explanations},
+        "remediations": [r.model_dump() for r in recs],
+    }
+
+
+@app.post("/cloud/azure/scan")
+def scan_real_azure(req: AzureScanRequest) -> dict:
+    """Connect to a real Microsoft Azure subscription (read-only) and run DB-TRACE."""
+    try:
+        t0 = time.perf_counter()
+        env, meta = collect_azure_environment(
+            subscription_id=req.subscription_id,
+            tenant_id=req.tenant_id,
+            client_id=req.client_id,
+            client_secret=req.client_secret,
+            access_token=req.access_token,
+        )
+        t_collect = round((time.perf_counter() - t0) * 1000, 1)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Azure connection failed: {exc}") from exc
+
+    graph = graph_to_cytoscape_elements(env)
+    scored, explanations = _score_env_paths(env)
+    logs = generate_env_logs(env, n_days=30, seed=settings.random_seed)
+    recs = recommend_remediations(env, logs)
+    return {
+        "inventory": {**meta, "collect_ms": t_collect},
+        "graph": graph,
+        "paths": scored,
+        "explanations": {e["path_id"]: e for e in explanations},
+        "remediations": [r.model_dump() for r in recs],
+    }
+
+
+@app.post("/cloud/gcp/scan")
+def scan_real_gcp(req: GcpScanRequest) -> dict:
+    """Connect to a real Google Cloud project (read-only) and run DB-TRACE."""
+    try:
+        t0 = time.perf_counter()
+        env, meta = collect_gcp_environment(
+            project_id=req.project_id,
+            access_token=req.access_token,
+        )
+        t_collect = round((time.perf_counter() - t0) * 1000, 1)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"GCP connection failed: {exc}") from exc
+
+    graph = graph_to_cytoscape_elements(env)
+    scored, explanations = _score_env_paths(env)
+    logs = generate_env_logs(env, n_days=30, seed=settings.random_seed)
+    recs = recommend_remediations(env, logs)
+    return {
+        "inventory": {**meta, "collect_ms": t_collect},
         "graph": graph,
         "paths": scored,
         "explanations": {e["path_id"]: e for e in explanations},

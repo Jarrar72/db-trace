@@ -14,18 +14,30 @@ from dbtrace.labeling.oracle import enumerate_and_label_paths
 from dbtrace.schema import CloudEnvironment, DBRole, DBTable, SensitivityLevel
 
 SCENARIO_WEIGHTS: list[tuple[str, float]] = [
-    ("capital_one_ssrf", 0.12),
-    ("lambda_privesc", 0.10),
-    ("iam_privesc_rollback", 0.08),
-    ("rce_web_app", 0.10),
-    ("rds_snapshot_unencrypted", 0.06),
-    ("stratus_rds_share", 0.06),
-    ("public_rds_iam", 0.10),
-    ("near_miss_explicit_deny", 0.10),
-    ("near_miss_sg_blocked", 0.10),
-    ("near_miss_wrong_grant", 0.08),
-    ("benign_least_privilege", 0.06),
-    ("benign_low_sensitivity", 0.04),
+    ("capital_one_ssrf", 0.08),
+    ("lambda_privesc", 0.06),
+    ("iam_privesc_rollback", 0.05),
+    ("rce_web_app", 0.06),
+    ("rds_snapshot_unencrypted", 0.04),
+    ("stratus_rds_share", 0.04),
+    ("public_rds_iam", 0.06),
+    # 2015-2026 Multi-Cloud Attack Chains (Chains B-F, RCE, AI/ML)
+    ("leaked_key_takeover", 0.06),
+    ("k8s_pod_cloud_pivot", 0.06),
+    ("identity_no_mfa_snowflake", 0.06),
+    ("cicd_oidc_supply_chain", 0.06),
+    ("react2shell_rce_2025", 0.06),
+    ("azure_entra_postgres_pivot", 0.06),
+    ("gcp_default_sa_cloudsql", 0.06),
+    ("ai_ml_notebook_exposure", 0.04),
+    # Benign Look-Alikes & Near-Misses (Multi-Cloud)
+    ("near_miss_explicit_deny", 0.04),
+    ("near_miss_sg_blocked", 0.04),
+    ("near_miss_wrong_grant", 0.03),
+    ("near_miss_azure_private_endpoint", 0.02),
+    ("near_miss_gcp_vpc_sc", 0.02),
+    ("benign_least_privilege", 0.02),
+    ("benign_low_sensitivity", 0.02),
 ]
 
 

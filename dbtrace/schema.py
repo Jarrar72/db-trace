@@ -37,6 +37,8 @@ class IAMPrincipal(BaseModel):
     kind: Literal["user", "role", "group"]
     has_mfa: bool = True
     is_external_entry: bool = False
+    has_long_lived_key: bool = False
+    has_broad_oidc_trust: bool = False
     attached_policy_ids: list[str] = Field(default_factory=list)
     inline_statements: list[PolicyStatement] = Field(default_factory=list)
     trust_principals: list[str] = Field(default_factory=list)
@@ -46,7 +48,7 @@ class IAMPrincipal(BaseModel):
 
 class ComputeResource(BaseModel):
     id: str
-    kind: Literal["ec2", "lambda"]
+    kind: Literal["ec2", "lambda", "k8s_pod", "azure_vm", "gcp_gce"]
     name: str
     subnet_id: str
     security_group_ids: list[str] = Field(default_factory=list)
@@ -124,6 +126,8 @@ class CloudEnvironment(BaseModel):
     scenario_type: str
     template_family: str
     seed: int
+    provider: Literal["aws", "azure", "gcp"] = "aws"
+    audit_logging_enabled: bool = True
     vpcs: list[VPC] = Field(default_factory=list)
     subnets: list[Subnet] = Field(default_factory=list)
     security_groups: list[SecurityGroup] = Field(default_factory=list)
